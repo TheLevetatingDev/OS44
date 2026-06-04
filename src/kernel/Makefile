@@ -12,11 +12,17 @@ LDFLAGS := -target x86_64-freestanding-none \
            -Wl,--no-dynamic-linker \
            -Wl,-e,kernel_main
 
+NASM    := nasm
+NASMFLAGS := -f elf64
+
 SRCS    := kernel.c \
            modules/framebuffer/framebuffer.c \
-           modules/mem/mem.c
+           modules/mem/mem.c \
+           modules/interrupts/interrupts.c
 
-OBJS    := $(SRCS:.c=.o)
+ASM_SRC := modules/interrupts/isr.asm
+
+OBJS    := $(SRCS:.c=.o) $(ASM_SRC:.asm=.o)
 TARGET  := kernel.elf
 
 .PHONY: all clean
@@ -28,6 +34,9 @@ $(TARGET): $(OBJS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+%.o: %.asm
+	$(NASM) $(NASMFLAGS) -o $@ $<
 
 clean:
 	rm -f $(OBJS) $(TARGET)

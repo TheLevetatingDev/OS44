@@ -2,6 +2,7 @@
 #include "bootinfo.h"
 #include "modules/framebuffer/framebuffer.h"
 #include "modules/mem/mem.h"
+#include "modules/interrupts/interrupts.h"
 
 static void append_uint(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
     char tmp[24];
@@ -48,6 +49,7 @@ void kernel_main(BootInfo *info) {
     }
 
     fb_init(info);
+    intr_init();
     mem_init(info);
 
     fb_clear(FB_COLOR_BLACK);
