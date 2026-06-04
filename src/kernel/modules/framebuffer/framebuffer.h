@@ -7,6 +7,7 @@
 #define FB_COLOR_BLACK  0x00000000
 #define FB_COLOR_WHITE  0x00FFFFFF
 #define FB_COLOR_GREEN  0x0000FF00
+#define FB_COLOR_RED    0x00FF0000
 
 void fb_init(BootInfo *info);
 void fb_clear(uint32_t color);

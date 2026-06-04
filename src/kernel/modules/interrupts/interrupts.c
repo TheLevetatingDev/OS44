@@ -172,7 +172,7 @@ static void pic_remap(uint8_t offset1, uint8_t offset2) {
 }
 
 static void pic_mask_all(void) {
-    outb(PIC1_DATA, 0xFF);
+    outb(PIC1_DATA, 0xFE);
     outb(PIC2_DATA, 0xFF);
 }
 
@@ -348,9 +348,9 @@ void intr_init(void) {
         idt_set_gate(ISR_IRQ_BASE + i, irq_stubs[i]);
 
     pic_remap(ISR_IRQ_BASE, ISR_IRQ_BASE + 8);
-    pic_mask_all();
+    // Mask all interrupts on PIC1 and PIC2 for now
+    outb(PIC1_DATA, 0xFF);
+    outb(PIC2_DATA, 0xFF);
 
     idt_load();
-
-    __asm__ volatile("sti");
 }
