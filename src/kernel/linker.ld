@@ -1,7 +1,7 @@
 ENTRY(kernel_main)
 
 SECTIONS {
-    . = 0x100000;  /* KEEP AT 1MB physical — clearly safe from your debug log */
+    . = 0x200000;  /* 2MB — avoids UEFI reserved low memory around 1MB */
 
     .text ALIGN(4096) : {
         *(.text*)

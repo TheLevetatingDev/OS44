@@ -100,6 +100,7 @@ static void draw_string(const char *s, uint64_t x, uint64_t y, uint32_t fg, uint
     }
 }
 
+__attribute__((noinline))
 static void clear_screen(uint32_t color) {
     for (uint64_t y = 0; y < fb_height; y++)
         for (uint64_t x = 0; x < fb_width; x++)

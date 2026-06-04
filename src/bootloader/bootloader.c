@@ -221,20 +221,32 @@ static EFI_STATUS load_kernel(EFI_FILE_PROTOCOL *root, UINT64 *entry_out) {
     kfile->SetPosition(kfile, ehdr.e_phoff);
     kfile->Read(kfile, &phsz, phdrs);
 
+    UINT64 min_vaddr = (UINT64)-1, max_vaddr = 0;
+    int load_count = 0;
     for (int i = 0; i < ehdr.e_phnum; i++) {
         if (phdrs[i].p_type != PT_LOAD) continue;
-        UINTN pages = (phdrs[i].p_memsz + 0xFFF) / 0x1000;
-        EFI_PHYSICAL_ADDRESS seg = phdrs[i].p_vaddr; // Map to virtual target destination
-        
-        BS->AllocatePages(1 /*AllocateAddress*/, 2 /*EfiLoaderData*/, pages, &seg);
-        memset_local((void *)seg, 0, phdrs[i].p_memsz);
-        
+        load_count++;
+        if (phdrs[i].p_vaddr < min_vaddr) min_vaddr = phdrs[i].p_vaddr;
+        UINT64 end = phdrs[i].p_vaddr + phdrs[i].p_memsz;
+        if (end > max_vaddr) max_vaddr = end;
+    }
+    if (load_count == 0) return EFI_LOAD_ERROR;
+
+    UINTN total_pages = (UINTN)((max_vaddr - min_vaddr + 0xFFF) / 0x1000);
+    EFI_PHYSICAL_ADDRESS base = 0;
+    s = BS->AllocatePages(0 /*AllocateAnyPages*/, 2 /*EfiLoaderData*/, total_pages, &base);
+    if (EFI_ERROR(s)) return s;
+
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        if (phdrs[i].p_type != PT_LOAD) continue;
+        UINT8 *dest = (UINT8 *)(base + (phdrs[i].p_vaddr - min_vaddr));
+        memset_local(dest, 0, phdrs[i].p_memsz);
         UINTN fsz = phdrs[i].p_filesz;
         kfile->SetPosition(kfile, phdrs[i].p_offset);
-        kfile->Read(kfile, &fsz, (void *)seg);
+        kfile->Read(kfile, &fsz, dest);
     }
 
-    *entry_out = ehdr.e_entry;
+    *entry_out = base + (ehdr.e_entry - min_vaddr);
     kfile->Close(kfile);
     return EFI_SUCCESS;
 }

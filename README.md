@@ -15,4 +15,4 @@ yay -S x86_64-elf-gcc x86_64-elf-binutils
 make run
 ```
 
-## I HAVE NO IDEA WHY THIS ISNT WORKING
+## YAY; THIS THING FINALLY WORKING
