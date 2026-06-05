@@ -4,6 +4,7 @@
 #include "modules/mem/mem.h"
 #include "modules/interrupts/interrupts.h"
 #include "modules/keyboard/keyboard.h"
+#include "modules/timer/timer.h"
 
 static void append_uint(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
     char tmp[24];
@@ -53,6 +54,7 @@ void kernel_main(BootInfo *info) {
     intr_init();
     mem_init(info);
     keyboard_init();
+    timer_init(100);
     fb_draw_string("About to enable interrupts (sti).", 16, 314, FB_COLOR_WHITE, FB_COLOR_BLACK);
     __asm__ volatile("sti"); /* enable interrupts now that everything is ready */
 

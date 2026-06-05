@@ -1,6 +1,7 @@
 #include "interrupts.h"
 #include "../framebuffer/framebuffer.h"
 #include "../keyboard/keyboard.h"
+#include "../timer/timer.h"
 #include <stdint.h>
 
 #define IDT_ENTRIES 256
@@ -346,7 +347,9 @@ void isr_handler(IntrFrame *frame) {
 
     if (frame->vector >= ISR_IRQ_BASE && frame->vector < ISR_IRQ_MAX) {
         pic_eoi(frame->vector);
-        if (frame->vector == ISR_IRQ_BASE + 1) { /* Keyboard IRQ1 */
+        if (frame->vector == ISR_IRQ_BASE + 0) { /* Timer IRQ0 */
+            timer_handler();
+        } else if (frame->vector == ISR_IRQ_BASE + 1) { /* Keyboard IRQ1 */
             fb_draw_string("Keyboard IRQ received!", 16, 250, FB_COLOR_WHITE, FB_COLOR_BLACK);
             keyboard_handler();
         }

@@ -19,7 +19,8 @@ SRCS    := kernel.c \
            modules/framebuffer/framebuffer.c \
            modules/mem/mem.c \
            modules/interrupts/interrupts.c \
-           modules/keyboard/keyboard.c
+           modules/keyboard/keyboard.c \
+           modules/timer/timer.c
 
 ASM_SRC := modules/interrupts/isr.asm
 
