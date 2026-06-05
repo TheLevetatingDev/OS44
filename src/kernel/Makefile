@@ -18,7 +18,8 @@ NASMFLAGS := -f elf64
 SRCS    := kernel.c \
            modules/framebuffer/framebuffer.c \
            modules/mem/mem.c \
-           modules/interrupts/interrupts.c
+           modules/interrupts/interrupts.c \
+           modules/keyboard/keyboard.c
 
 ASM_SRC := modules/interrupts/isr.asm
 

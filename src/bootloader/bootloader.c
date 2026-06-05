@@ -1,27 +1,5 @@
-#include <stdint.h>
+#include "efi_common.h"
 
-// ============================================================
-// Minimal UEFI types and protocol definitions (no gnu-efi)
-// ============================================================
-
-typedef uint8_t   UINT8;
-typedef uint16_t  UINT16;
-typedef uint32_t  UINT32;
-typedef uint64_t  UINT64;
-typedef int64_t   INT64;
-typedef uintptr_t UINTN;
-typedef void* EFI_HANDLE;
-typedef UINT64    EFI_STATUS;
-typedef UINT64    EFI_PHYSICAL_ADDRESS;
-
-#define EFI_SUCCESS              0ULL
-#define EFI_ERROR(x)             ((x) & (1ULL << 63))
-#define EFI_LOAD_ERROR           (1ULL | (1ULL << 63))
-
-#define EFI_MEMORY_TYPE_LOADER_DATA  2
-
-// UEFI calling convention on x86_64 is MS ABI (same as Windows)
-#define EFIAPI __attribute__((ms_abi))
 // Kernel calling convention is System V AMD64 ABI (Linux default)
 #define SYSVAPI __attribute__((sysv_abi))
 
@@ -88,7 +66,7 @@ typedef struct _EFI_FILE_PROTOCOL {
     EFIAPI EFI_STATUS (*Read)(EFI_FILE_PROTOCOL*, UINTN*, void*);
     void *Write;
     EFIAPI EFI_STATUS (*GetPosition)(EFI_FILE_PROTOCOL*, UINT64*);
-    EFIAPI EFI_STATUS (*SetPosition)(EFI_FILE_PROTOCOL*, UINT64);
+    EFI_STATUS (*SetPosition)(EFI_FILE_PROTOCOL*, UINT64);
     void *GetInfo, *SetInfo, *Flush;
 } EFI_FILE_PROTOCOL;
 
@@ -106,49 +84,9 @@ typedef struct {
 } EFI_LOADED_IMAGE_PROTOCOL;
 
 // --- Boot services (Aligned strictly to UEFI Spec) ---
-typedef struct {
-    UINT8 Pad[24]; // EFI_TABLE_HEADER
-    void *RaiseTPL, *RestoreTPL;
-    EFIAPI EFI_STATUS (*AllocatePages)(UINT32, UINT32, UINTN, EFI_PHYSICAL_ADDRESS*);
-    void *FreePages;
-    EFIAPI EFI_STATUS (*GetMemoryMap)(UINTN*, EFI_MEMORY_DESCRIPTOR*, UINTN*, UINTN*, UINT32*);
-    EFIAPI EFI_STATUS (*AllocatePool)(UINT32, UINTN, void**);
-    void *FreePool;
-    void *CreateEvent, *SetTimer, *WaitForEvent, *SignalEvent, *CloseEvent, *CheckEvent;
-    void *InstallProtocolInterface, *ReinstallProtocolInterface, *UninstallProtocolInterface;
-    EFIAPI EFI_STATUS (*HandleProtocol)(EFI_HANDLE, EFI_GUID*, void**);
-    void *Reserved;
-    void *RegisterProtocolNotify, *LocateHandle;
-    void *LocateDevicePath, *InstallConfigurationTable;
-    void *LoadImage, *StartImage, *Exit, *UnloadImage;
-    EFIAPI EFI_STATUS (*ExitBootServices)(EFI_HANDLE, UINTN);
-    void *GetNextMonotonicCount, *Stall, *SetWatchdogTimer;
-    void *ConnectController, *DisconnectController;
-    void *OpenProtocol, *CloseProtocol, *OpenProtocolInformation;
-    void *ProtocolsPerHandle, *LocateHandleBuffer;
-    EFIAPI EFI_STATUS (*LocateProtocol)(EFI_GUID*, void*, void**);
-} EFI_BOOT_SERVICES;
+// (Already defined in efi_common.h as EFI_BOOT_SERVICES)
 
-// --- System table ---
-typedef struct {
-    UINT8 Hdr[24];
-    UINT16 *FirmwareVendor;
-    UINT32 FirmwareRevision;
-    UINT32 Pad; // 32-bit padding for explicit 64-bit boundary matching
-    EFI_HANDLE ConsoleInHandle;
-    void *ConIn;
-    EFI_HANDLE ConsoleOutHandle;
-    void *ConOut;
-    EFI_HANDLE StandardErrorHandle;
-    void *StdErr;
-    void *RuntimeServices;
-    EFI_BOOT_SERVICES *BootServices;
-} EFI_SYSTEM_TABLE;
-
-// ============================================================
-// ELF64
-// ============================================================
-
+// --- ELF64 ---
 #define PT_LOAD 1
 
 typedef struct {
@@ -166,10 +104,7 @@ typedef struct {
     UINT64 p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_align;
 } Elf64_Phdr;
 
-// ============================================================
-// BootInfo passed to kernel
-// ============================================================
-
+// --- BootInfo passed to kernel ---
 typedef struct {
     UINT32 magic;
     void  *framebuffer;
@@ -179,10 +114,7 @@ typedef struct {
     UINT64 mmap_size, mmap_desc_size;
 } BootInfo;
 
-// ============================================================
-// Helpers
-// ============================================================
-
+// --- Helpers ---
 static EFI_BOOT_SERVICES *BS;
 
 static void memset_local(void *dst, UINT8 val, UINTN len) {
@@ -190,27 +122,25 @@ static void memset_local(void *dst, UINT8 val, UINTN len) {
     while (len--) *p++ = val;
 }
 
-// Simple print via ConOut
 static void print(EFI_SYSTEM_TABLE *st, UINT16 *msg) {
     typedef EFI_STATUS (EFIAPI *EFI_OUTPUT_STRING)(void*, UINT16*);
     EFI_OUTPUT_STRING OutputString = *(EFI_OUTPUT_STRING*)((UINT8 *)st->ConOut + sizeof(void*));
     OutputString(st->ConOut, msg);
 }
 
-// ============================================================
-// Kernel loader
-// ============================================================
-
-static EFI_STATUS load_kernel(EFI_FILE_PROTOCOL *root, UINT64 *entry_out) {
+// --- Kernel loader ---
+static EFI_STATUS load_kernel(EFI_FILE_PROTOCOL *root, UINT64 *entry_out, EFI_SYSTEM_TABLE *st) {
+    print(st, (UINT16 *)u"LK: Start\r\n");
     EFI_FILE_PROTOCOL *kfile;
     UINT16 kname[] = {'k','e','r','n','e','l','.','e','l','f',0};
 
     EFI_STATUS s = root->Open(root, &kfile, kname, EFI_FILE_MODE_READ, 0);
-    if (EFI_ERROR(s)) return s;
+    if (EFI_ERROR(s)) { print(st, (UINT16 *)u"LK: Open ERR\r\n"); return s; }
 
     Elf64_Ehdr ehdr;
     UINTN sz = sizeof(ehdr);
     kfile->Read(kfile, &sz, &ehdr);
+    print(st, (UINT16 *)u"LK: ELF hdr read\r\n");
 
     if (ehdr.e_ident[0] != 0x7f || ehdr.e_ident[1] != 'E' ||
         ehdr.e_ident[2] != 'L'  || ehdr.e_ident[3] != 'F')
@@ -220,6 +150,7 @@ static EFI_STATUS load_kernel(EFI_FILE_PROTOCOL *root, UINT64 *entry_out) {
     UINTN phsz = ehdr.e_phnum * sizeof(Elf64_Phdr);
     kfile->SetPosition(kfile, ehdr.e_phoff);
     kfile->Read(kfile, &phsz, phdrs);
+    print(st, (UINT16 *)u"LK: Phdrs read\r\n");
 
     UINT64 min_vaddr = (UINT64)-1, max_vaddr = 0;
     int load_count = 0;
@@ -235,7 +166,8 @@ static EFI_STATUS load_kernel(EFI_FILE_PROTOCOL *root, UINT64 *entry_out) {
     UINTN total_pages = (UINTN)((max_vaddr - min_vaddr + 0xFFF) / 0x1000);
     EFI_PHYSICAL_ADDRESS base = 0;
     s = BS->AllocatePages(0 /*AllocateAnyPages*/, 2 /*EfiLoaderData*/, total_pages, &base);
-    if (EFI_ERROR(s)) return s;
+    if (EFI_ERROR(s)) { print(st, (UINT16 *)u"LK: AllocPages ERR\r\n"); return s; }
+    print(st, (UINT16 *)u"LK: AllocPages OK\r\n");
 
     for (int i = 0; i < ehdr.e_phnum; i++) {
         if (phdrs[i].p_type != PT_LOAD) continue;
@@ -245,63 +177,68 @@ static EFI_STATUS load_kernel(EFI_FILE_PROTOCOL *root, UINT64 *entry_out) {
         kfile->SetPosition(kfile, phdrs[i].p_offset);
         kfile->Read(kfile, &fsz, dest);
     }
+    print(st, (UINT16 *)u"LK: Segments loaded\r\n");
 
     *entry_out = base + (ehdr.e_entry - min_vaddr);
     kfile->Close(kfile);
     return EFI_SUCCESS;
 }
 
-// ============================================================
-// Entry point
-// ============================================================
-
+// --- Entry point ---
 EFIAPI EFI_STATUS EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
+    if (SystemTable == NULL) {
+        // Can't use print here, SystemTable is NULL
+        while(1);
+    }
+    if (SystemTable->BootServices == NULL) {
+        print(SystemTable, (UINT16 *)u"ERROR: BS is NULL\r\n");
+        while(1);
+    }
     BS = SystemTable->BootServices;
 
     print(SystemTable, (UINT16 *)u"=== OS44 Bootloader ===\r\n");
 
-    // --- GOP framebuffer ---
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
     EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
+    print(SystemTable, (UINT16 *)u"DEBUG: Before LocateProtocol\r\n");
     if (EFI_ERROR(BS->LocateProtocol(&gop_guid, 0, (void **)&gop))) {
         print(SystemTable, (UINT16 *)u"ERROR: No GOP\r\n");
         while(1);
     }
+    print(SystemTable, (UINT16 *)u"DEBUG: After LocateProtocol\r\n");
+    print(SystemTable, (UINT16 *)u"EM: GOP OK\r\n");
 
-    // --- Open ESP filesystem ---
     EFI_GUID li_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
     EFI_LOADED_IMAGE_PROTOCOL *li;
     BS->HandleProtocol(ImageHandle, &li_guid, (void **)&li);
+    print(SystemTable, (UINT16 *)u"EM: LI OK\r\n");
 
     EFI_GUID fs_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
     EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs;
     BS->HandleProtocol(li->DeviceHandle, &fs_guid, (void **)&fs);
+    print(SystemTable, (UINT16 *)u"EM: FS OK\r\n");
 
     EFI_FILE_PROTOCOL *root;
     fs->OpenVolume(fs, &root);
+    print(SystemTable, (UINT16 *)u"EM: Root volume OK\r\n");
 
-    // --- Load kernel ---
     UINT64 kernel_entry = 0;
-    if (EFI_ERROR(load_kernel(root, &kernel_entry))) {
+    if (EFI_ERROR(load_kernel(root, &kernel_entry, SystemTable))) {
         print(SystemTable, (UINT16 *)u"ERROR: kernel load failed\r\n");
         while(1);
     }
     print(SystemTable, (UINT16 *)u"Kernel loaded!\r\n");
+    // ... (rest of function)
 
-    // --- Get memory map & exit boot services ---
     UINTN mmap_size = 0, map_key, desc_size;
     UINT32 desc_ver;
     EFI_MEMORY_DESCRIPTOR *mmap = 0;
 
-    // Fetch required map buffer size
     BS->GetMemoryMap(&mmap_size, mmap, &map_key, &desc_size, &desc_ver);
-    
-    // BARE METAL FIX: Add a generous 4KB cushion for fragmented desktop firmware pools
     mmap_size += 4096; 
     BS->AllocatePool(2, mmap_size, (void **)&mmap);
     BS->GetMemoryMap(&mmap_size, mmap, &map_key, &desc_size, &desc_ver);
 
-    // --- Build BootInfo ---
     BootInfo *info;
     BS->AllocatePool(2, sizeof(BootInfo), (void **)&info);
     info->magic          = 0xB007B007;
@@ -314,7 +251,6 @@ EFIAPI EFI_STATUS EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     info->mmap_size      = mmap_size;
     info->mmap_desc_size = desc_size;
 
-    // BARE METAL FIX: Robust retry loop for handling background firmware timers
     EFI_STATUS es = BS->ExitBootServices(ImageHandle, map_key);
     if (EFI_ERROR(es)) {
         BS->GetMemoryMap(&mmap_size, mmap, &map_key, &desc_size, &desc_ver);
@@ -325,8 +261,6 @@ EFIAPI EFI_STATUS EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         }
     }
 
-    // --- Jump to kernel ---
-    // BARE METAL FIX: Explicit System V ABI calling convention cast for kernel handoff
     SYSVAPI void (*kernel_main)(BootInfo *) = (SYSVAPI void (*)(BootInfo *))kernel_entry;
     kernel_main(info);
 

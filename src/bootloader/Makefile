@@ -4,10 +4,13 @@ CFLAGS  := -target x86_64-uefi \
            -ffreestanding \
            -fno-stack-protector \
            -mno-red-zone \
-           -O2
+           -O2 \
+           -fno-sanitize=undefined
 LD      := zig cc
 LDFLAGS := -target x86_64-uefi \
-           -nostdlib
+           -nostdlib \
+           -Wl,--entry=EfiMain \
+           -Wl,--subsystem=efi_application
 
 SRCS    := bootloader.c
 OBJS    := $(SRCS:.c=.o)

@@ -3,6 +3,7 @@
 #include "modules/framebuffer/framebuffer.h"
 #include "modules/mem/mem.h"
 #include "modules/interrupts/interrupts.h"
+#include "modules/keyboard/keyboard.h"
 
 static void append_uint(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
     char tmp[24];
@@ -51,8 +52,11 @@ void kernel_main(BootInfo *info) {
     fb_init(info);
     intr_init();
     mem_init(info);
+    keyboard_init();
+    fb_draw_string("About to enable interrupts (sti).", 16, 314, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    __asm__ volatile("sti"); /* enable interrupts now that everything is ready */
 
-    fb_clear(FB_COLOR_BLACK);
+    // fb_clear(FB_COLOR_BLACK);
 
     const uint64_t bar_height = 48;
     fb_draw_color_bar(0, bar_height);
@@ -66,6 +70,9 @@ void kernel_main(BootInfo *info) {
         format_ram_size(ram_line, 64, mem_total_bytes());
         fb_draw_string(ram_line, 32, text_y + 32, FB_COLOR_WHITE, FB_COLOR_BLACK);
     }
+
+    // Draw initial shell prompt
+    fb_draw_string(SHELL_PROMPT, 0, 0, FB_COLOR_WHITE, FB_COLOR_BLACK);
 
     while (1) __asm__("hlt");
 }

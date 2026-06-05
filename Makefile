@@ -1,36 +1,76 @@
-OVMF := /usr/share/edk2/x64/OVMF.4m.fd
+OVMF    := /usr/share/edk2/x64/OVMF.4m.fd
+ISO_DIR := iso
 
-.PHONY: all clean run
+ISO_NAME := OS44_$(shell date +%Y%m%d_%H%M%S).iso
 
-all:
+.PHONY: all iso run clean
+
+all: iso
+
+# ── Sub-project builds ────────────────────────────────────────────────────────
+src/bootloader/BOOTX64.EFI:
 	$(MAKE) -C src/bootloader
+
+src/kernel/kernel.elf:
 	$(MAKE) -C src/kernel
-	$(MAKE) disk.img
 
-disk.img:
-	dd if=/dev/zero of=$@ bs=1M count=64
-	parted $@ --script mklabel gpt
-	parted $@ --script mkpart ESP fat32 2048s 100%
-	parted $@ --script set 1 esp on
-	sudo losetup -D
-	sudo losetup -Pf --show $@ > /tmp/loopdev
-	sudo mkfs.fat -F32 $$(cat /tmp/loopdev)p1
-	mkdir -p /tmp/esp
-	sudo mount $$(cat /tmp/loopdev)p1 /tmp/esp
-	sudo mkdir -p /tmp/esp/EFI/BOOT
-	sudo cp src/bootloader/BOOTX64.EFI /tmp/esp/EFI/BOOT/BOOTX64.EFI
-	sudo cp src/kernel/kernel.elf /tmp/esp/kernel.elf
-	sudo umount /tmp/esp
-	sudo losetup -d $$(cat /tmp/loopdev)
+# ── Bootable ISO ──────────────────────────────────────────────────────────────
+#
+# Uses xorriso only — no mtools, mkfs.fat, or root required.
+# xorriso builds a proper El Torito EFI boot entry (MBR + GPT hybrid),
+# which makes the resulting image directly flashable to a USB stick with dd.
+#
+# Install dependency (once):  sudo apt install xorriso
+#
+# Flash to USB:
+#   sudo dd if=OS44_*.iso of=/dev/sdX bs=4M status=progress && sync
+#   (find your USB device with: lsblk)
+#
+iso: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf
+	@echo ">>> Building bootable ISO: $(ISO_NAME)"
+	@mkdir -p $(ISO_DIR)
+	@mkdir -p /tmp/efi_mnt
+	@dd if=/dev/zero of=$(ISO_DIR)/efi.img bs=1M count=64
+	@mkfs.vfat -F 32 $(ISO_DIR)/efi.img
+	@sudo mount -o loop $(ISO_DIR)/efi.img /tmp/efi_mnt
+	@sudo mkdir -p /tmp/efi_mnt/EFI/BOOT
+	@sudo cp src/bootloader/BOOTX64.EFI /tmp/efi_mnt/EFI/BOOT/BOOTX64.EFI
+	@sudo cp src/kernel/kernel.elf /tmp/efi_mnt/kernel.elf
+	@sudo umount /tmp/efi_mnt
+	@# No need to copy kernel.elf to ISO_DIR now, as it's in efi.img
+	xorriso -as mkisofs \
+	    -o $(ISO_NAME) \
+	    -e efi.img \
+	    -no-emul-boot \
+	    -isohybrid-gpt-basdat \
+	    $(ISO_DIR)
+	@echo ""
+	@echo ">>> Done: $(ISO_NAME)"
+	@echo ">>> Flash: sudo dd if=$(ISO_NAME) of=/dev/sdX bs=4M status=progress && sync"
+	@echo ">>> Fix: echo "fix" | sudo parted /dev/sdX ---pretend-input-tty print"
 
-run: all
+# ── QEMU run with the generated ISO ───────────────────────────────────────────
+runiso: iso
+	@echo ">>> Running QEMU with ISO: $(shell ls -t OS44_*.iso | head -1)"
 	qemu-system-x86_64 \
-		-bios $(OVMF) \
-		-drive format=raw,file=disk.img \
-		-m 256M \
-		-serial stdio
+	    -bios $(OVMF) \
+	    -cdrom $(shell ls -t OS44_*.iso | head -1) \
+	    -m 256M \
+	    -serial stdio
 
+# ── QEMU test run (using iso directory directly) ──────────────────────────────
+run: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf
+	@mkdir -p $(ISO_DIR)/EFI/BOOT
+	@cp src/bootloader/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/
+	@cp src/kernel/kernel.elf       $(ISO_DIR)/
+	qemu-system-x86_64 \
+	    -bios $(OVMF) \
+	    -drive file=fat:rw:$(ISO_DIR) \
+	    -m 256M \
+	    -serial stdio
+
+# ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	$(MAKE) -C src/bootloader clean
 	$(MAKE) -C src/kernel clean
-	rm -f disk.img
+	rm -rf $(ISO_DIR) OS44_*.iso

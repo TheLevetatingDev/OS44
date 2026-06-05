@@ -1,5 +1,6 @@
 #include "interrupts.h"
 #include "../framebuffer/framebuffer.h"
+#include "../keyboard/keyboard.h"
 #include <stdint.h>
 
 #define IDT_ENTRIES 256
@@ -35,7 +36,7 @@ typedef struct {
 
 typedef struct {
     uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
-    uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
+    uint64_t rsi, rdi, rbp, rdx, rcx, rbx, rax; /* must match isr_common_stub push order */
     uint64_t vector, error_code;
     uint64_t rip, cs, rflags, rsp, ss;
 } IntrFrame;
@@ -120,70 +121,6 @@ static const char *const exception_names[ISR_CPU_MAX] = {
     "Reserved", "Reserved",
 };
 
-static void outb(uint16_t port, uint8_t value) {
-    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
-}
-
-static uint8_t inb(uint16_t port) {
-    uint8_t value;
-    __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
-    return value;
-}
-
-static uint16_t read_cs(void) {
-    uint16_t cs;
-    __asm__ volatile("movw %%cs, %0" : "=r"(cs));
-    return cs;
-}
-
-static void idt_set_gate(unsigned int vector, void (*handler)(void)) {
-    uint64_t addr = (uint64_t)handler;
-    idt[vector].offset_low  = (uint16_t)(addr & 0xFFFF);
-    idt[vector].offset_mid  = (uint16_t)((addr >> 16) & 0xFFFF);
-    idt[vector].offset_high = (uint32_t)(addr >> 32);
-    idt[vector].selector    = read_cs();
-    idt[vector].ist         = 0;
-    idt[vector].type_attr   = 0x8E;
-    idt[vector].zero        = 0;
-}
-
-static void idt_load(void) {
-    IdtPointer ptr;
-    ptr.limit = (uint16_t)(sizeof(idt) - 1);
-    ptr.base  = (uint64_t)idt;
-    __asm__ volatile("lidt %0" : : "m"(ptr));
-}
-
-static void pic_remap(uint8_t offset1, uint8_t offset2) {
-    uint8_t mask1 = inb(PIC1_DATA);
-    uint8_t mask2 = inb(PIC2_DATA);
-
-    outb(PIC1_COMMAND, ICW1_INIT);
-    outb(PIC2_COMMAND, ICW1_INIT);
-    outb(PIC1_DATA, offset1);
-    outb(PIC2_DATA, offset2);
-    outb(PIC1_DATA, 4);
-    outb(PIC2_DATA, 2);
-    outb(PIC1_DATA, ICW4_8086);
-    outb(PIC2_DATA, ICW4_8086);
-
-    outb(PIC1_DATA, mask1);
-    outb(PIC2_DATA, mask2);
-}
-
-static void pic_mask_all(void) {
-    outb(PIC1_DATA, 0xFE);
-    outb(PIC2_DATA, 0xFF);
-}
-
-static void pic_eoi(uint64_t vector) {
-    if (vector >= ISR_IRQ_BASE && vector < ISR_IRQ_MAX) {
-        if (vector >= 40)
-            outb(PIC2_COMMAND, PIC_EOI);
-        outb(PIC1_COMMAND, PIC_EOI);
-    }
-}
-
 static void append_hex(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
     static const char hex[] = "0123456789ABCDEF";
     char tmp[18];
@@ -226,6 +163,98 @@ static void append_dec(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
 static void append_str(char *buf, uint64_t *pos, uint64_t cap, const char *s) {
     while (*s && *pos + 1 < cap)
         buf[(*pos)++] = *s++;
+}
+
+void outb(uint16_t port, uint8_t value) {
+    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+uint8_t inb(uint16_t port) {
+    uint8_t value;
+    __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
+    return value;
+}
+
+static uint16_t read_cs(void) {
+    uint16_t cs;
+    __asm__ volatile("movw %%cs, %0" : "=r"(cs));
+    return cs;
+}
+
+static void hex_to_string_16(char *buf, uint16_t value) {
+    const char hex_chars[] = "0123456789ABCDEF";
+    buf[0] = hex_chars[(value >> 12) & 0xF];
+    buf[1] = hex_chars[(value >> 8) & 0xF];
+    buf[2] = hex_chars[(value >> 4) & 0xF];
+    buf[3] = hex_chars[value & 0xF];
+    buf[4] = '\0';
+}
+
+static void idt_set_gate(unsigned int vector, void (*handler)(void)) {
+    uint64_t addr = (uint64_t)handler;
+    idt[vector].offset_low  = (uint16_t)(addr & 0xFFFF);
+    idt[vector].offset_mid  = (uint16_t)((addr >> 16) & 0xFFFF);
+    idt[vector].offset_high = (uint32_t)(addr >> 32);
+    uint16_t cs = read_cs();
+    idt[vector].selector    = cs;
+    idt[vector].ist         = 0;
+    idt[vector].type_attr   = 0x8E;
+    idt[vector].zero        = 0;
+
+    if (vector == ISR_IRQ_BASE + 1) { // Debug for keyboard interrupt
+        char cs_str[5];
+        hex_to_string_16(cs_str, cs);
+        fb_draw_string("IDT entry 33: CS=", 16, 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
+        fb_draw_string(cs_str, 16 + (8 * 17), 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
+
+        char addr_str[17];
+        // This is a simple conversion, a full uint64_t to hex would be more involved
+        // For debugging, we can just print the lower 32 bits if needed due to fb_draw_string limits.
+        // For now, let's just print the CS as that's a more common issue.
+        // Re-using append_hex from interrupts.c for addr
+        uint64_t pos = 0;
+        append_hex(addr_str, &pos, sizeof(addr_str), addr);
+        addr_str[pos < sizeof(addr_str) ? pos : sizeof(addr_str) - 1] = '\0';
+        fb_draw_string(" Handler addr=", 16 + (8 * 23), 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
+        fb_draw_string(addr_str, 16 + (8 * 37), 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    }
+}
+
+static void idt_load(void) {
+    IdtPointer ptr;
+    ptr.limit = (uint16_t)(sizeof(idt) - 1);
+    ptr.base  = (uint64_t)idt;
+    __asm__ volatile("lidt %0" : : "m"(ptr));
+}
+
+static void pic_remap(uint8_t offset1, uint8_t offset2) {
+    uint8_t mask1 = inb(PIC1_DATA);
+    uint8_t mask2 = inb(PIC2_DATA);
+
+    outb(PIC1_COMMAND, ICW1_INIT);
+    outb(PIC2_COMMAND, ICW1_INIT);
+    outb(PIC1_DATA, offset1);
+    outb(PIC2_DATA, offset2);
+    outb(PIC1_DATA, 4);
+    outb(PIC2_DATA, 2);
+    outb(PIC1_DATA, ICW4_8086);
+    outb(PIC2_DATA, ICW4_8086);
+
+    outb(PIC1_DATA, mask1);
+    outb(PIC2_DATA, mask2);
+}
+
+static void pic_mask_all(void) {
+    outb(PIC1_DATA, 0xFE);
+    outb(PIC2_DATA, 0xFF);
+}
+
+static void pic_eoi(uint64_t vector) {
+    if (vector >= ISR_IRQ_BASE && vector < ISR_IRQ_MAX) {
+        if (vector >= 40)
+            outb(PIC2_COMMAND, PIC_EOI);
+        outb(PIC1_COMMAND, PIC_EOI);
+    }
 }
 
 static void panic_report(const IntrFrame *frame) {
@@ -312,10 +341,15 @@ static void panic_report(const IntrFrame *frame) {
 void isr_handler(IntrFrame *frame) {
     if (frame->vector < ISR_CPU_MAX) {
         panic_report(frame);
+        return; /* unreachable, but prevents fall-through if ever refactored */
     }
 
     if (frame->vector >= ISR_IRQ_BASE && frame->vector < ISR_IRQ_MAX) {
         pic_eoi(frame->vector);
+        if (frame->vector == ISR_IRQ_BASE + 1) { /* Keyboard IRQ1 */
+            fb_draw_string("Keyboard IRQ received!", 16, 250, FB_COLOR_WHITE, FB_COLOR_BLACK);
+            keyboard_handler();
+        }
         return;
     }
 
@@ -348,9 +382,10 @@ void intr_init(void) {
         idt_set_gate(ISR_IRQ_BASE + i, irq_stubs[i]);
 
     pic_remap(ISR_IRQ_BASE, ISR_IRQ_BASE + 8);
-    // Mask all interrupts on PIC1 and PIC2 for now
+    /* Mask all IRQs — keyboard_init() will unmask IRQ1, then kernel_main calls sti */
     outb(PIC1_DATA, 0xFF);
     outb(PIC2_DATA, 0xFF);
 
     idt_load();
+    /* NOTE: caller must execute sti after all devices are initialised */
 }
