@@ -58,23 +58,30 @@ void kernel_main(BootInfo *info) {
     fb_draw_string("About to enable interrupts (sti).", 16, 314, FB_COLOR_WHITE, FB_COLOR_BLACK);
     __asm__ volatile("sti"); /* enable interrupts now that everything is ready */
 
-    // fb_clear(FB_COLOR_BLACK);
+    fb_clear(FB_COLOR_BLACK);
+    // fb_draw_filled_circle(fb_width() / 2, fb_height() / 2, 100);
+    fb_draw_color_bar(0, 48);
 
-    const uint64_t bar_height = 48;
-    fb_draw_color_bar(0, bar_height);
-
-    const uint64_t text_y = bar_height + 16;
+    const uint64_t text_y = 64;
     fb_draw_string("OS44", 32, text_y, FB_COLOR_WHITE, FB_COLOR_BLACK);
     fb_draw_string("Kernel booted successfully!", 32, text_y + 16, FB_COLOR_GREEN, FB_COLOR_BLACK);
 
-    char *ram_line = mem_alloc(64);
-    if (ram_line) {
-        format_ram_size(ram_line, 64, mem_total_bytes());
-        fb_draw_string(ram_line, 32, text_y + 32, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    // Simple loop to show uptime
+    while (1) {
+        char uptime_str[32];
+        uint64_t pos = 0;
+        const char *prefix = "Uptime: ";
+        for (uint64_t i = 0; prefix[i] && pos + 1 < 32; i++)
+            uptime_str[pos++] = prefix[i];
+        
+        append_uint(uptime_str, &pos, 32, timer_get_uptime_seconds());
+        uptime_str[pos < 32 ? pos : 31] = '\0';
+        
+        // Clear previous uptime area
+        for(uint64_t i=0; i<32*8; i+=8) fb_draw_char(' ', 32+i, text_y + 32, FB_COLOR_BLACK, FB_COLOR_BLACK);
+        fb_draw_string(uptime_str, 32, text_y + 32, FB_COLOR_WHITE, FB_COLOR_BLACK);
+        
+        // Short delay
+        for(uint64_t i=0; i<10000000; i++) __asm__ volatile("nop");
     }
-
-    // Draw initial shell prompt
-    fb_draw_string(SHELL_PROMPT, 0, 0, FB_COLOR_WHITE, FB_COLOR_BLACK);
-
-    while (1) __asm__("hlt");
 }

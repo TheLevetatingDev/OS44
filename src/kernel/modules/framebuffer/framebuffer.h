@@ -16,6 +16,7 @@ uint32_t fb_rgb(uint8_t r, uint8_t g, uint8_t b);
 void fb_draw_char(char c, uint64_t x, uint64_t y, uint32_t fg, uint32_t bg);
 void fb_draw_string(const char *s, uint64_t x, uint64_t y, uint32_t fg, uint32_t bg);
 void fb_draw_color_bar(uint64_t y, uint64_t height);
+void fb_draw_filled_circle(uint64_t x, uint64_t y, uint64_t r);
 uint64_t fb_width(void);
 uint64_t fb_height(void);
 

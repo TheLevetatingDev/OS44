@@ -159,3 +159,33 @@ void fb_draw_color_bar(uint64_t y, uint64_t height) {
         }
     }
 }
+
+void fb_draw_filled_circle(uint64_t x0, uint64_t y0, uint64_t radius) {
+    for (int64_t y = -(int64_t)radius; y <= (int64_t)radius; y++) {
+        for (int64_t x = -(int64_t)radius; x <= (int64_t)radius; x++) {
+            if (x * x + y * y <= (int64_t)radius * (int64_t)radius) {
+                // Calculate hue based on position for a color effect
+                uint32_t hue = (uint32_t)(((x + (int64_t)radius) * 255) / (2 * radius));
+                uint8_t r, g, b;
+                
+                // Reuse existing HSV logic if available or implement simple one
+                uint32_t region = hue / 43;
+                uint32_t remainder = (hue - region * 43) * 6;
+                uint32_t p = (255 * (255 - remainder)) >> 8;
+                uint32_t q = (255 * (255 - ((255 - remainder) * (43 - (hue % 43))) / 43)) >> 8;
+                uint32_t t = 255 - p;
+                
+                switch (region) {
+                    case 0:  r = 255; g = (uint8_t)p;   b = (uint8_t)t;   break;
+                    case 1:  r = (uint8_t)q;   g = 255; b = (uint8_t)t;   break;
+                    case 2:  r = (uint8_t)t;   g = 255; b = (uint8_t)p;   break;
+                    case 3:  r = (uint8_t)t;   g = (uint8_t)q;   b = 255; break;
+                    case 4:  r = (uint8_t)p;   g = (uint8_t)t;   b = 255; break;
+                    default: r = 255; g = (uint8_t)t;   b = (uint8_t)q;   break;
+                }
+                
+                fb_put_pixel(x0 + (uint64_t)x, y0 + (uint64_t)y, fb_rgb(r, g, b));
+            }
+        }
+    }
+}
