@@ -5,6 +5,7 @@
 #include "modules/interrupts/interrupts.h"
 #include "modules/keyboard/keyboard.h"
 #include "modules/timer/timer.h"
+#include "modules/sysinfo/sysinfo.h"
 
 static void append_uint(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
     char tmp[24];
@@ -53,6 +54,7 @@ void kernel_main(BootInfo *info) {
     fb_init(info);
     intr_init();
     mem_init(info);
+    sysinfo_init(info);
     keyboard_init();
     timer_init(100);
     fb_draw_string("About to enable interrupts (sti).", 16, 314, FB_COLOR_WHITE, FB_COLOR_BLACK);
@@ -65,6 +67,25 @@ void kernel_main(BootInfo *info) {
     const uint64_t text_y = 64;
     fb_draw_string("OS44", 32, text_y, FB_COLOR_WHITE, FB_COLOR_BLACK);
     fb_draw_string("Kernel booted successfully!", 32, text_y + 16, FB_COLOR_GREEN, FB_COLOR_BLACK);
+
+    // Display system info
+    char ram_str[64];
+    format_ram_size(ram_str, 64, sysinfo_get_ram_total());
+    fb_draw_string(ram_str, 32, text_y + 48, FB_COLOR_WHITE, FB_COLOR_BLACK);
+
+    char cpu_str[64] = "CPU: ";
+    sysinfo_get_cpu_brand(cpu_str + 5);
+    fb_draw_string(cpu_str, 32, text_y + 64, FB_COLOR_WHITE, FB_COLOR_BLACK);
+
+    char res_str[64] = "Res: ";
+    uint64_t w, h;
+    sysinfo_get_screen_res(&w, &h);
+    uint64_t pos = 5;
+    append_uint(res_str, &pos, 64, w);
+    res_str[pos++] = 'x';
+    append_uint(res_str, &pos, 64, h);
+    res_str[pos] = '\0';
+    fb_draw_string(res_str, 32, text_y + 80, FB_COLOR_WHITE, FB_COLOR_BLACK);
 
     // Simple loop to show uptime
     while (1) {

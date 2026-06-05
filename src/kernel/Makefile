@@ -20,7 +20,8 @@ SRCS    := kernel.c \
            modules/mem/mem.c \
            modules/interrupts/interrupts.c \
            modules/keyboard/keyboard.c \
-           modules/timer/timer.c
+           modules/timer/timer.c \
+           modules/sysinfo/sysinfo.c
 
 ASM_SRC := modules/interrupts/isr.asm
 
