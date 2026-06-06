@@ -9,6 +9,7 @@
 #include "modules/sysinfo/sysinfo.h"
 #include "modules/startup_panel/startup_panel.h"
 #include "modules/shell/shell.h"
+#include "modules/process/process.h"
 
 static int pmm_test_status = 0; // 0: testing, 1: pass, 2: fail
 
@@ -37,6 +38,7 @@ void kernel_main(BootInfo *info) {
     keyboard_init();
     timer_init(100);
     shell_init();
+    process_init();
     __asm__ volatile("sti");
 
     run_pmm_test();
@@ -45,6 +47,7 @@ void kernel_main(BootInfo *info) {
     int startup_done = 0;
     while (1) {
         uint64_t current_ticks = timer_get_ticks();
+        scheduler();
         
         if (!startup_done) {
             if (timer_get_uptime_seconds() >= 5) {

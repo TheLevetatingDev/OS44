@@ -4,6 +4,7 @@
 #include "../mem/pmm.h"
 #include "../mem/paging.h"
 #include "../mem/vmm.h"
+#include "../process/process.h"
 #include <stdint.h>
 
 // Helper to convert int to string
@@ -22,6 +23,15 @@ static void itoa(uint64_t val, char *buf) {
     }
     while (i > 0) *p++ = tmp[--i];
     *p = '\0';
+}
+
+static uint64_t atoi(const char *str) {
+    uint64_t res = 0;
+    while (*str >= '0' && *str <= '9') {
+        res = res * 10 + (*str - '0');
+        str++;
+    }
+    return res;
 }
 
 #define MAX_CMD_LEN 64
@@ -50,6 +60,9 @@ static int strcmp(const char *s1, const char *s2) {
     return *(const unsigned char*)s1 - *(const unsigned char*)s2;
 }
 
+// Dummy entry point for test process
+void test_entry(void) { while(1); }
+
 static void execute_command(void) {
     if (cmd_pos == 0) return;
     cmd_buf[cmd_pos] = '\0';
@@ -60,10 +73,10 @@ static void execute_command(void) {
     add_to_history(full_prompt);
     
     char response[LINE_LEN];
+
     if (strcmp(cmd_buf, "help") == 0) {
-        memcpy(response, "Commands: help, testmem", 23);
+        memcpy(response, "Cmds: help, testmem, spawn, get [pid], pkill [pid]", 50);
     } else if (strcmp(cmd_buf, "testmem") == 0) {
-        // Run memory tests
         uint64_t free_frames = pmm_get_free_frames();
         char frames_str[20];
         itoa(free_frames, frames_str);
@@ -83,6 +96,49 @@ static void execute_command(void) {
         }
         
         memcpy(response, "Testmem complete", 16);
+    } else if (strcmp(cmd_buf, "spawn") == 0) {
+        uint64_t pid = process_create(test_entry, 4096);
+        char pid_str[20];
+        itoa(pid, pid_str);
+        memcpy(response, "Spawned PID: ", 13);
+        memcpy(response + 13, pid_str, 20);
+    } else if (cmd_buf[0] == 'g' && cmd_buf[1] == 'e' && cmd_buf[2] == 't') {
+        uint64_t pid = atoi(cmd_buf + 4);
+        pcb_t *proc = get_proc_by_pid(pid);
+        if (proc) {
+            char mem_str[20];
+            itoa(proc->mem_size, mem_str);
+            char time_str[20];
+            itoa(proc->run_time, time_str);
+            
+            char status_str[20];
+            memcpy(status_str, (proc->status == PROC_RUNNING ? "RUNNING" : "READY"), 7);
+            status_str[7] = '\0';
+            
+            char msg[LINE_LEN];
+            memcpy(msg, "PID status: ", 12);
+            memcpy(msg + 12, status_str, 8);
+            add_to_history(msg);
+            
+            memcpy(msg, "Mem: ", 5);
+            memcpy(msg + 5, mem_str, 20);
+            add_to_history(msg);
+            
+            memcpy(response, "Time: ", 6);
+            memcpy(response + 6, time_str, 20);
+        } else {
+            memcpy(response, "Invalid PID", 11);
+        }
+    } else if (cmd_buf[0] == 'p' && cmd_buf[1] == 'k' && cmd_buf[2] == 'i' && cmd_buf[3] == 'l' && cmd_buf[4] == 'l') {
+        uint64_t pid = atoi(cmd_buf + 6);
+        pcb_t *proc = get_proc_by_pid(pid);
+        if (proc) {
+            kill_proc(pid);
+            process_check_and_free(); // Immediately clean up
+            memcpy(response, "Killed PID", 10);
+        } else {
+            memcpy(response, "Invalid PID", 11);
+        }
     } else {
         memcpy(response, "Unknown command", 15);
     }

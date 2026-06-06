@@ -22,6 +22,7 @@ SRCS    := kernel.c \
            modules/mem/pmm.c \
            modules/mem/paging.c \
            modules/mem/vmm.c \
+           modules/process/process.c \
            modules/interrupts/interrupts.c \
            modules/keyboard/keyboard.c \
            modules/timer/timer.c \
