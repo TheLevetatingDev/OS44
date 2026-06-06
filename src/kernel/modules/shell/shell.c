@@ -40,9 +40,7 @@ static void execute_command(void) {
     
     char response[LINE_LEN];
     if (strcmp(cmd_buf, "help") == 0) {
-        memcpy(response, "Commands: help, test", 20);
-    } else if (strcmp(cmd_buf, "test") == 0) {
-        memcpy(response, "Test: Interrupts functional", 27);
+        memcpy(response, "Commands: help", 14);
     } else {
         memcpy(response, "Unknown command", 15);
     }
