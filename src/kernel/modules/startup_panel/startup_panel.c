@@ -4,6 +4,7 @@
 #include "../mem/pmm.h"
 #include "../sysinfo/sysinfo.h"
 #include "../timer/timer.h"
+#include "../../string.h"
 #include <stdint.h>
 
 static uint64_t frame_count = 0;
@@ -26,7 +27,7 @@ static void append_uint(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) 
 
 void startup_panel_render(int pmm_test_status) {
     frame_count = (frame_count + 1) % 1000;
-
+    
     fb_clear(FB_COLOR_BLACK);
     fb_draw_color_bar(0, 48);
 
@@ -40,30 +41,35 @@ void startup_panel_render(int pmm_test_status) {
     uint64_t pos = 7;
     append_uint(frame_str, &pos, 32, frame_count);
     frame_str[pos] = '\0';
-    fb_draw_string(frame_str, fb_width() - 150, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
-    y += 24;
+    fb_draw_string(frame_str, fb_width() - 150, 64, FB_COLOR_WHITE, FB_COLOR_BLACK);
 
-    char mem_info[64] = "Total RAM: ";
-    pos = 11;
-    append_uint(mem_info, &pos, 64, mem_total_bytes() / 1024 / 1024);
-    for(int i=0; i<3; i++) mem_info[pos++] = " MB"[i];
+    y += 24;
+    
+    // Memory Info
+    fb_draw_string("Total RAM: ", text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    char mem_info[32];
+    pos = 0;
+    append_uint(mem_info, &pos, 32, mem_total_bytes() / 1024 / 1024);
+    mem_info[pos++] = ' '; mem_info[pos++] = 'M'; mem_info[pos++] = 'B';
     mem_info[pos] = '\0';
-    fb_draw_string(mem_info, text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    fb_draw_string(mem_info, text_x + 11*8, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
     y += 16;
     
-    char pmm_info[64] = "Free Pages: ";
-    pos = 12;
-    append_uint(pmm_info, &pos, 64, pmm_get_free_frames());
+    fb_draw_string("Free Pages: ", text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    char pmm_info[32];
+    pos = 0;
+    append_uint(pmm_info, &pos, 32, pmm_get_free_frames());
     pmm_info[pos] = '\0';
-    fb_draw_string(pmm_info, text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    fb_draw_string(pmm_info, text_x + 12*8, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
     y += 16;
 
+    fb_draw_string("PMM Test: ", text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
     if (pmm_test_status == 1) {
-        fb_draw_string("PMM Test: PASS", text_x, y, FB_COLOR_GREEN, FB_COLOR_BLACK);
+        fb_draw_string("PASS", text_x + 10*8, y, FB_COLOR_GREEN, FB_COLOR_BLACK);
     } else if (pmm_test_status == 2) {
-        fb_draw_string("PMM Test: FAIL", text_x, y, FB_COLOR_RED, FB_COLOR_BLACK);
+        fb_draw_string("FAIL", text_x + 10*8, y, FB_COLOR_RED, FB_COLOR_BLACK);
     } else {
-        fb_draw_string("PMM Test: TESTING...", text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+        fb_draw_string("TESTING...", text_x + 10*8, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
     }
     y += 24;
 
@@ -106,7 +112,7 @@ void startup_panel_render(int pmm_test_status) {
         fb_put_pixel(bar_x + bar_width - 1, bar_y + j, FB_COLOR_WHITE);
     }
 
-    // Draw animated progress (smoother)
+    // Draw animated progress
     uint64_t progress_width = (frame_count) * (bar_width - 4) / 1000;
     for(uint64_t i = 0; i < progress_width; i++) {
         for(uint64_t j = 0; j < bar_height - 2; j++) {

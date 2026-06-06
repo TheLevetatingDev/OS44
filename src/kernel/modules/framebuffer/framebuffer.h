@@ -19,6 +19,7 @@ void fb_draw_color_bar(uint64_t y, uint64_t height);
 void fb_draw_filled_circle(uint64_t x, uint64_t y, uint64_t r);
 uint64_t fb_width(void);
 uint64_t fb_height(void);
+uint64_t fb_pitch(void);
 
 // Double buffering
 void fb_enable_double_buffering(void);

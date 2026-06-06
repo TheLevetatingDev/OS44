@@ -4,11 +4,10 @@
 
 static void *fb;
 static void *back_buffer = NULL;
-static uint64_t screen_w, screen_h, fb_pitch;
+static uint64_t screen_w, screen_h, fb_pitch_val;
 static uint32_t fb_format;
 static int use_double_buffer = 0;
 
-// 8x8 bitmap font, printable ASCII 32-126
 static const uint8_t font[95][8] = {
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}, {0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x00},
     {0x66,0x66,0x00,0x00,0x00,0x00,0x00,0x00}, {0x36,0x36,0x7F,0x36,0x7F,0x36,0x36,0x00},
@@ -80,12 +79,13 @@ void fb_init(BootInfo *info) {
     fb         = info->framebuffer;
     screen_w   = info->fb_width;
     screen_h   = info->fb_height;
-    fb_pitch   = info->fb_pitch;
+    fb_pitch_val = info->fb_pitch;
     fb_format  = info->fb_format;
 }
 
 uint64_t fb_width(void)  { return screen_w; }
 uint64_t fb_height(void) { return screen_h; }
+uint64_t fb_pitch(void)  { return fb_pitch_val; }
 
 uint32_t fb_rgb(uint8_t r, uint8_t g, uint8_t b) {
     if (fb_format == FB_FORMAT_BGR)
@@ -100,13 +100,13 @@ void fb_put_pixel(uint64_t x, uint64_t y, uint32_t color) {
     void *target = use_double_buffer ? back_buffer : fb;
     
     uint32_t *pixel =
-        (uint32_t *)((uint8_t *)target + y * fb_pitch + x * 4);
+        (uint32_t *)((uint8_t *)target + y * fb_pitch_val + x * 4);
     *pixel = color;
 }
 
 void fb_clear(uint32_t color) {
     if (use_double_buffer && back_buffer) {
-        memset(back_buffer, color, screen_h * fb_pitch);
+        memset(back_buffer, color, screen_h * fb_pitch_val);
     } else {
         for (uint64_t y = 0; y < screen_h; y++)
             for (uint64_t x = 0; x < screen_w; x++)
@@ -194,7 +194,7 @@ void fb_draw_filled_circle(uint64_t x0, uint64_t y0, uint64_t radius) {
 }
 
 void fb_enable_double_buffering(void) {
-    back_buffer = mem_alloc(screen_h * fb_pitch);
+    back_buffer = mem_alloc(screen_h * fb_pitch_val);
     if (back_buffer)
         use_double_buffer = 1;
     else
@@ -203,19 +203,15 @@ void fb_enable_double_buffering(void) {
 
 void fb_swap_buffers(void) {
     if (use_double_buffer && back_buffer) {
-        // Visual test: Draw a fixed green rectangle at top-left of back-buffer
-        for(uint64_t y = 0; y < 10; y++) {
-            for(uint64_t x = 0; x < 10; x++) {
-                uint32_t *pixel = (uint32_t *)((uint8_t *)back_buffer + y * fb_pitch + x * 4);
-                *pixel = 0x0000FF00;
-            }
-        }
-
         // Copy row by row to avoid tearing
         uint8_t *src = (uint8_t *)back_buffer;
         uint8_t *dst = (uint8_t *)fb;
         for (uint64_t y = 0; y < screen_h; y++) {
-            memcpy(dst + y * fb_pitch, src + y * fb_pitch, screen_w * 4);
+            memcpy(dst + y * fb_pitch_val, src + y * fb_pitch_val, screen_w * 4);
         }
     }
+}
+
+int fb_is_double_buffered(void) {
+    return use_double_buffer;
 }

@@ -42,8 +42,8 @@ void kernel_main(BootInfo *info) {
     uint64_t last_tick = 0;
     while (1) {
         uint64_t current_ticks = timer_get_ticks();
-        // Update at 10Hz (every 10 ticks, assuming 100Hz timer)
-        if (current_ticks - last_tick >= 10) {
+        // Update at ~25Hz (every 4 ticks, assuming 100Hz timer)
+        if (current_ticks - last_tick >= 4) {
             startup_panel_render(pmm_test_status);
             fb_swap_buffers(); // Swap buffers
             last_tick = current_ticks;
