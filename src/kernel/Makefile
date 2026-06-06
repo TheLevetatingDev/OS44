@@ -18,6 +18,8 @@ NASMFLAGS := -f elf64
 SRCS    := kernel.c \
            modules/framebuffer/framebuffer.c \
            modules/mem/mem.c \
+           modules/mem/pmm.c \
+           modules/mem/paging.c \
            modules/interrupts/interrupts.c \
            modules/keyboard/keyboard.c \
            modules/timer/timer.c \

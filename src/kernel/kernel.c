@@ -68,6 +68,12 @@ void kernel_main(BootInfo *info) {
     fb_draw_string("OS44", 32, text_y, FB_COLOR_WHITE, FB_COLOR_BLACK);
     fb_draw_string("Kernel booted successfully!", 32, text_y + 16, FB_COLOR_GREEN, FB_COLOR_BLACK);
 
+// Simple test for memory allocator
+    void *ptr1 = mem_alloc(1024);
+    char *buf1 = (char *)ptr1;
+    buf1[0] = 'A';
+    mem_free(ptr1);
+    
     // Display system info
     char ram_str[64];
     format_ram_size(ram_str, 64, sysinfo_get_ram_total());
