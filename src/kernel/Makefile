@@ -23,7 +23,8 @@ SRCS    := kernel.c \
            modules/interrupts/interrupts.c \
            modules/keyboard/keyboard.c \
            modules/timer/timer.c \
-           modules/sysinfo/sysinfo.c
+           modules/sysinfo/sysinfo.c \
+           modules/startup_panel/startup_panel.c
 
 ASM_SRC := modules/interrupts/isr.asm
 
