@@ -9,6 +9,9 @@
 #define FB_COLOR_GREEN  0x0000FF00
 #define FB_COLOR_RED    0x00FF0000
 
+#define FB_FORMAT_RGB  0   // PixelRedGreenBlueReserved8BitPerColor
+#define FB_FORMAT_BGR  1   // PixelBlueGreenRedReserved8BitPerColor
+
 void fb_init(BootInfo *info);
 void fb_clear(uint32_t color);
 void fb_put_pixel(uint64_t x, uint64_t y, uint32_t color);

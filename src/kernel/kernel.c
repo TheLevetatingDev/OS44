@@ -8,6 +8,7 @@
 #include "modules/timer/timer.h"
 #include "modules/sysinfo/sysinfo.h"
 #include "modules/startup_panel/startup_panel.h"
+#include "modules/shell/shell.h"
 
 static int pmm_test_status = 0; // 0: testing, 1: pass, 2: fail
 
@@ -31,22 +32,35 @@ void kernel_main(BootInfo *info) {
     fb_init(info);
     intr_init();
     mem_init(info);
-    fb_enable_double_buffering(); // Enable double buffering
+    fb_enable_double_buffering();
     sysinfo_init(info);
     keyboard_init();
-    timer_init(100); // 100Hz frequency
+    timer_init(100);
+    shell_init();
     __asm__ volatile("sti");
 
     run_pmm_test();
 
     uint64_t last_tick = 0;
+    int startup_done = 0;
     while (1) {
         uint64_t current_ticks = timer_get_ticks();
-        // Update at ~25Hz (every 4 ticks, assuming 100Hz timer)
-        if (current_ticks - last_tick >= 4) {
-            startup_panel_render(pmm_test_status);
-            fb_swap_buffers(); // Swap buffers
-            last_tick = current_ticks;
+        
+        if (!startup_done) {
+            if (timer_get_uptime_seconds() >= 5) {
+                startup_done = 1;
+            }
+            if (current_ticks - last_tick >= 4) { // ~25Hz
+                startup_panel_render(pmm_test_status);
+                fb_swap_buffers();
+                last_tick = current_ticks;
+            }
+        } else {
+            if (current_ticks - last_tick >= 4) { // ~25Hz
+                shell_render();
+                fb_swap_buffers();
+                last_tick = current_ticks;
+            }
         }
         __asm__ volatile("pause");
     }
