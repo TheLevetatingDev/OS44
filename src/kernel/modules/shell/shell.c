@@ -1,7 +1,28 @@
 #include "shell.h"
 #include "../framebuffer/framebuffer.h"
 #include "../../string.h"
+#include "../mem/pmm.h"
+#include "../mem/paging.h"
+#include "../mem/vmm.h"
 #include <stdint.h>
+
+// Helper to convert int to string
+static void itoa(uint64_t val, char *buf) {
+    char *p = buf;
+    if (val == 0) {
+        *p++ = '0';
+        *p = '\0';
+        return;
+    }
+    char tmp[20];
+    int i = 0;
+    while (val > 0) {
+        tmp[i++] = (val % 10) + '0';
+        val /= 10;
+    }
+    while (i > 0) *p++ = tmp[--i];
+    *p = '\0';
+}
 
 #define MAX_CMD_LEN 64
 #define MAX_LINES 20
@@ -40,7 +61,28 @@ static void execute_command(void) {
     
     char response[LINE_LEN];
     if (strcmp(cmd_buf, "help") == 0) {
-        memcpy(response, "Commands: help", 14);
+        memcpy(response, "Commands: help, testmem", 23);
+    } else if (strcmp(cmd_buf, "testmem") == 0) {
+        // Run memory tests
+        uint64_t free_frames = pmm_get_free_frames();
+        char frames_str[20];
+        itoa(free_frames, frames_str);
+        
+        char msg[LINE_LEN];
+        memcpy(msg, "Free frames: ", 13);
+        memcpy(msg + 13, frames_str, 20);
+        add_to_history(msg);
+        
+        // VMM Test
+        void *ptr = vmm_alloc(8192); // 2 pages
+        if (ptr) {
+            paging_map((uint64_t)ptr + 0x1000, 0x0); // Dummy map
+            add_to_history("VMM test: Success");
+        } else {
+            add_to_history("VMM test: Failed");
+        }
+        
+        memcpy(response, "Testmem complete", 16);
     } else {
         memcpy(response, "Unknown command", 15);
     }
