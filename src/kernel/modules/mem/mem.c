@@ -1,3 +1,4 @@
+#include "vmm.h"
 #include "mem.h"
 #include "pmm.h"
 #include "paging.h"
@@ -26,6 +27,7 @@ typedef struct {
 void mem_init(BootInfo *info) {
     pmm_init(info);
     paging_init();
+    vmm_init();
 
     // Calculate total RAM from memory map
     total_ram_bytes = 0;

@@ -10,15 +10,16 @@
 typedef uint64_t PageTableEntry;
 typedef struct {
     PageTableEntry entries[512];
+    uint32_t ref_count; // Added reference count
 } PageTable;
 
 static PageTable *pml4 = NULL;
 
 void paging_init(void) {
-    // For now, we assume identity mapping, and try to get CR3
     uint64_t cr3;
     __asm__ volatile ("mov %%cr3, %0" : "=r" (cr3));
     pml4 = (PageTable *)(cr3 & ~0xFFF);
+    // PML4 is always present, we don't track its ref count
 }
 
 static PageTable *get_next_table(PageTable *table, uint64_t index, int create) {
@@ -27,10 +28,11 @@ static PageTable *get_next_table(PageTable *table, uint64_t index, int create) {
         void *new_frame = pmm_alloc_frame();
         if (!new_frame) return NULL;
         
-        // Clear new table
         memset(new_frame, 0, PAGE_SIZE);
         
         table->entries[index] = (uint64_t)new_frame | PAGE_PRESENT | PAGE_WRITABLE;
+        ((PageTable *)new_frame)->ref_count = 0; // Initialize ref count
+        table->ref_count++; // Increment parent ref count
     }
     return (PageTable *)(table->entries[index] & ~0xFFF);
 }
@@ -49,9 +51,11 @@ void paging_map(uint64_t vaddr, uint64_t paddr) {
 
     if (!pt) return;
 
+    if (!(pt->entries[pt_idx] & PAGE_PRESENT)) {
+        pt->ref_count++;
+    }
     pt->entries[pt_idx] = (paddr & ~0xFFF) | PAGE_PRESENT | PAGE_WRITABLE;
     
-    // In a real OS, need to flush TLB
     __asm__ volatile ("invlpg (%0)" :: "r" (vaddr) : "memory");
 }
 
@@ -70,9 +74,30 @@ void paging_unmap(uint64_t vaddr) {
     PageTable *pt   = get_next_table(pd,   pd_idx,   0);
     if (!pt) return;
 
-    pt->entries[pt_idx] &= ~PAGE_PRESENT;
+    if (pt->entries[pt_idx] & PAGE_PRESENT) {
+        pt->entries[pt_idx] &= ~PAGE_PRESENT;
+        pt->ref_count--;
+        
+        // Recursively free page tables
+        if (pt->ref_count == 0) {
+            pmm_free_frame(pt);
+            pd->entries[pd_idx] = 0; // Explicitly clear entry
+            pd->ref_count--;
+            
+            if (pd->ref_count == 0) {
+                pmm_free_frame(pd);
+                pdpt->entries[pdpt_idx] = 0; // Explicitly clear entry
+                pdpt->ref_count--;
+                
+                if (pdpt->ref_count == 0) {
+                    pmm_free_frame(pdpt);
+                    pml4->entries[pml4_idx] = 0; // Explicitly clear entry
+                    // PML4 not freed as it is root
+                }
+            }
+        }
+    }
     
-    // In a real OS, need to flush TLB
     __asm__ volatile ("invlpg (%0)" :: "r" (vaddr) : "memory");
 }
 

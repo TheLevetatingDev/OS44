@@ -25,7 +25,7 @@ static void append_uint(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) 
     }
 }
 
-void startup_panel_render(int pmm_test_status) {
+void startup_panel_render(int pmm_test_status, int vmm_test_status) {
     frame_count = (frame_count + 1) % 1000;
     
     fb_clear(FB_COLOR_BLACK);
@@ -67,6 +67,16 @@ void startup_panel_render(int pmm_test_status) {
     if (pmm_test_status == 1) {
         fb_draw_string("PASS", text_x + 10*8, y, FB_COLOR_GREEN, FB_COLOR_BLACK);
     } else if (pmm_test_status == 2) {
+        fb_draw_string("FAIL", text_x + 10*8, y, FB_COLOR_RED, FB_COLOR_BLACK);
+    } else {
+        fb_draw_string("TESTING...", text_x + 10*8, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    }
+    y += 16;
+
+    fb_draw_string("VMM Test: ", text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    if (vmm_test_status == 1) {
+        fb_draw_string("PASS", text_x + 10*8, y, FB_COLOR_GREEN, FB_COLOR_BLACK);
+    } else if (vmm_test_status == 2) {
         fb_draw_string("FAIL", text_x + 10*8, y, FB_COLOR_RED, FB_COLOR_BLACK);
     } else {
         fb_draw_string("TESTING...", text_x + 10*8, y, FB_COLOR_WHITE, FB_COLOR_BLACK);

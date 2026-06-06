@@ -3,6 +3,7 @@
 #include "modules/framebuffer/framebuffer.h"
 #include "modules/mem/mem.h"
 #include "modules/mem/pmm.h"
+#include "modules/mem/vmm.h"
 #include "modules/interrupts/interrupts.h"
 #include "modules/keyboard/keyboard.h"
 #include "modules/timer/timer.h"
@@ -12,6 +13,7 @@
 #include "modules/process/process.h"
 
 static int pmm_test_status = 0; // 0: testing, 1: pass, 2: fail
+static int vmm_test_status = 0; // 0: testing, 1: pass, 2: fail
 
 static void run_pmm_test(void) {
     void *p1 = pmm_alloc_frame();
@@ -22,6 +24,22 @@ static void run_pmm_test(void) {
         pmm_free_frame(p2);
     } else {
         pmm_test_status = 2;
+    }
+}
+
+static void run_vmm_test(void) {
+    void *v1 = vmm_alloc(4096);
+    if (v1) {
+        // Simple write to test if page is mapped and writable
+        *(uint64_t *)v1 = 0xDEADBEEFCAFEBABE;
+        if (*(uint64_t *)v1 == 0xDEADBEEFCAFEBABE) {
+            vmm_test_status = 1;
+            vmm_free(v1);
+        } else {
+            vmm_test_status = 2;
+        }
+    } else {
+        vmm_test_status = 2;
     }
 }
 
@@ -42,6 +60,7 @@ void kernel_main(BootInfo *info) {
     __asm__ volatile("sti");
 
     run_pmm_test();
+    run_vmm_test();
 
     uint64_t last_tick = 0;
     int startup_done = 0;
@@ -54,7 +73,7 @@ void kernel_main(BootInfo *info) {
                 startup_done = 1;
             }
             if (current_ticks - last_tick >= 4) { // ~25Hz
-                startup_panel_render(pmm_test_status);
+                startup_panel_render(pmm_test_status, vmm_test_status);
                 fb_swap_buffers();
                 last_tick = current_ticks;
             }

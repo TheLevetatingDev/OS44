@@ -89,8 +89,8 @@ static void execute_command(void) {
         // VMM Test
         void *ptr = vmm_alloc(8192); // 2 pages
         if (ptr) {
-            paging_map((uint64_t)ptr + 0x1000, 0x0); // Dummy map
             add_to_history("VMM test: Success");
+            vmm_free(ptr); // Free the memory
         } else {
             add_to_history("VMM test: Failed");
         }
