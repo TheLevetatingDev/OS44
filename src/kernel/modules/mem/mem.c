@@ -1,7 +1,9 @@
 #include "mem.h"
 #include "pmm.h"
 #include "paging.h"
+#include "../framebuffer/framebuffer.h"
 #include <stddef.h>
+#include <stdint.h>
 
 #define PAGE_SIZE 4096
 #define EFI_CONVENTIONAL_MEMORY 7
@@ -21,6 +23,26 @@ typedef struct {
     uint64_t attribute;
 } EfiMemoryDescriptor;
 
+static void print_hex(uint64_t val, int x, int y) {
+    char buf[20];
+    int i = 0;
+    if (val == 0) buf[i++] = '0';
+    while (val > 0) {
+        int d = val % 16;
+        buf[i++] = (d < 10) ? ('0' + d) : ('A' + d - 10);
+        val /= 16;
+    }
+    buf[i] = '\0';
+    // Basic reverse (for simplicity)
+    for (int j = 0; j < i / 2; j++) {
+        char tmp = buf[j];
+        buf[j] = buf[i - 1 - j];
+        buf[i - 1 - j] = tmp;
+    }
+    fb_draw_string("0x", x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    fb_draw_string(buf, x + 16, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+}
+
 void mem_init(BootInfo *info) {
     pmm_init(info);
     paging_init();
@@ -37,12 +59,17 @@ void mem_init(BootInfo *info) {
 
     for (uint64_t i = 0; i < count; i++) {
         EfiMemoryDescriptor *desc = (EfiMemoryDescriptor *)(cursor + i * desc_size);
-        // Only count conventional memory as usable/total RAM
         if (desc->type == EFI_CONVENTIONAL_MEMORY) {
             total_ram_bytes += desc->number_of_pages * PAGE_SIZE;
         }
     }
+
+    fb_draw_string("Mem Init: Detected RAM: ", 32, 160, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    
+    // For simplicity, just print raw bytes in hex for now
+    print_hex(total_ram_bytes, 32 + 200, 160);
 }
+
 
 uint64_t mem_total_bytes(void) {
     return total_ram_bytes;
