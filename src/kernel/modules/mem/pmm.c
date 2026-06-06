@@ -58,8 +58,8 @@ void pmm_init(BootInfo *info) {
     
     // 3. Mark kernel-occupied frames as used (1) - Placeholder: 
     // Ideally should read symbol table or linker script to find kernel bounds.
-    // For now, assume first 2MB is used.
-    for (uint64_t f = 0; f < (2 * 1024 * 1024 / PAGE_SIZE); f++) {
+    // Mark first 4MB as used to cover kernel and pmm_bitmap
+    for (uint64_t f = 0; f < (4 * 1024 * 1024 / PAGE_SIZE); f++) {
         set_bit(f);
     }
 }

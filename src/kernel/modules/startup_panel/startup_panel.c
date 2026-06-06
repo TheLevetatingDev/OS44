@@ -81,6 +81,14 @@ void startup_panel_render(int pmm_test_status) {
     append_uint(res_str, &pos, 64, h);
     res_str[pos] = '\0';
     fb_draw_string(res_str, text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
+    y += 16;
+
+    char uptime_str[64] = "Uptime: ";
+    pos = 8;
+    append_uint(uptime_str, &pos, 64, timer_get_uptime_seconds());
+    for(int i=0; i<3; i++) uptime_str[pos++] = " s"[i];
+    uptime_str[pos] = '\0';
+    fb_draw_string(uptime_str, text_x, y, FB_COLOR_WHITE, FB_COLOR_BLACK);
 
     // Animated Loading Bar
     uint64_t bar_width = fb_width() - 64;

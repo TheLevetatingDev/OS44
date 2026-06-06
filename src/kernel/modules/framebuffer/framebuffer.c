@@ -1,8 +1,12 @@
 #include "framebuffer.h"
+#include "../mem/mem.h"
+#include "../../string.h"
 
 static void *fb;
+static void *back_buffer = NULL;
 static uint64_t screen_w, screen_h, fb_pitch;
 static uint32_t fb_format;
+static int use_double_buffer = 0;
 
 // 8x8 bitmap font, printable ASCII 32-126
 static const uint8_t font[95][8] = {
@@ -42,7 +46,7 @@ static const uint8_t font[95][8] = {
     {0x07,0x06,0x06,0x3E,0x66,0x66,0x3B,0x00}, {0x00,0x00,0x1E,0x33,0x03,0x33,0x1E,0x00},
     {0x38,0x30,0x30,0x3e,0x33,0x33,0x6E,0x00}, {0x00,0x00,0x1E,0x33,0x3f,0x03,0x1E,0x00},
     {0x1C,0x36,0x06,0x0f,0x06,0x06,0x0F,0x00}, {0x00,0x00,0x6E,0x33,0x33,0x3E,0x30,0x1F},
-    {0x07,0x06,0x36,0x6E,0x66,0x66,0x67,0x00}, {0x0C,0x00,0x0E,0x0C,0x0C,0x0C,0x1E,0x00},
+    {0x07,0x06,0x66,0x36,0x1E,0x36,0x67,0x00}, {0x0C,0x00,0x0E,0x0C,0x0C,0x0C,0x1E,0x00},
     {0x30,0x00,0x30,0x30,0x30,0x33,0x33,0x1E}, {0x07,0x06,0x66,0x36,0x1E,0x36,0x67,0x00},
     {0x0E,0x0C,0x0C,0x0C,0x0C,0x0C,0x1E,0x00}, {0x00,0x00,0x33,0x7F,0x7F,0x6B,0x63,0x00},
     {0x00,0x00,0x1F,0x33,0x33,0x33,0x33,0x00}, {0x00,0x00,0x1E,0x33,0x33,0x33,0x1E,0x00},
@@ -91,15 +95,23 @@ uint32_t fb_rgb(uint8_t r, uint8_t g, uint8_t b) {
 
 void fb_put_pixel(uint64_t x, uint64_t y, uint32_t color) {
     if (x >= screen_w || y >= screen_h) return;
-    volatile uint32_t *pixel =
-        (volatile uint32_t *)((uint8_t *)fb + y * fb_pitch + x * 4);
+    
+    // Choose buffer
+    void *target = use_double_buffer ? back_buffer : fb;
+    
+    uint32_t *pixel =
+        (uint32_t *)((uint8_t *)target + y * fb_pitch + x * 4);
     *pixel = color;
 }
 
 void fb_clear(uint32_t color) {
-    for (uint64_t y = 0; y < screen_h; y++)
-        for (uint64_t x = 0; x < screen_w; x++)
-            fb_put_pixel(x, y, color);
+    if (use_double_buffer && back_buffer) {
+        memset(back_buffer, color, screen_h * fb_pitch);
+    } else {
+        for (uint64_t y = 0; y < screen_h; y++)
+            for (uint64_t x = 0; x < screen_w; x++)
+                fb_put_pixel(x, y, color);
+    }
 }
 
 void fb_draw_char(char c, uint64_t x, uint64_t y, uint32_t fg, uint32_t bg) {
@@ -107,7 +119,6 @@ void fb_draw_char(char c, uint64_t x, uint64_t y, uint32_t fg, uint32_t bg) {
     const uint8_t *glyph = font[c - 32];
     for (int row = 0; row < 8; row++) {
         for (int col = 0; col < 8; col++) {
-            // MSB in font data is the rightmost pixel; map to left-to-right on screen
             uint32_t color = (glyph[row] & (0x80 >> (7 - col))) ? fg : bg;
             fb_put_pixel(x + (uint64_t)col, y + (uint64_t)row, color);
         }
@@ -129,7 +140,6 @@ void fb_draw_color_bar(uint64_t y, uint64_t height) {
     uint64_t third = height / 3;
     if (third == 0) third = 1;
 
-    // Top third: red -> green gradient
     for (uint64_t row = y; row < y + third && row < bar_bottom; row++) {
         for (uint64_t x = 0; x < screen_w; x++) {
             uint8_t r = (uint8_t)((x * 255) / (screen_w ? screen_w : 1));
@@ -138,7 +148,6 @@ void fb_draw_color_bar(uint64_t y, uint64_t height) {
         }
     }
 
-    // Middle third: green -> blue gradient
     uint64_t mid_start = y + third;
     for (uint64_t row = mid_start; row < mid_start + third && row < bar_bottom; row++) {
         for (uint64_t x = 0; x < screen_w; x++) {
@@ -148,7 +157,6 @@ void fb_draw_color_bar(uint64_t y, uint64_t height) {
         }
     }
 
-    // Bottom third: full hue rainbow
     uint64_t hue_start = mid_start + third;
     for (uint64_t row = hue_start; row < bar_bottom; row++) {
         for (uint64_t x = 0; x < screen_w; x++) {
@@ -164,17 +172,13 @@ void fb_draw_filled_circle(uint64_t x0, uint64_t y0, uint64_t radius) {
     for (int64_t y = -(int64_t)radius; y <= (int64_t)radius; y++) {
         for (int64_t x = -(int64_t)radius; x <= (int64_t)radius; x++) {
             if (x * x + y * y <= (int64_t)radius * (int64_t)radius) {
-                // Calculate hue based on position for a color effect
                 uint32_t hue = (uint32_t)(((x + (int64_t)radius) * 255) / (2 * radius));
                 uint8_t r, g, b;
-                
-                // Reuse existing HSV logic if available or implement simple one
                 uint32_t region = hue / 43;
                 uint32_t remainder = (hue - region * 43) * 6;
                 uint32_t p = (255 * (255 - remainder)) >> 8;
                 uint32_t q = (255 * (255 - ((255 - remainder) * (43 - (hue % 43))) / 43)) >> 8;
                 uint32_t t = 255 - p;
-                
                 switch (region) {
                     case 0:  r = 255; g = (uint8_t)p;   b = (uint8_t)t;   break;
                     case 1:  r = (uint8_t)q;   g = 255; b = (uint8_t)t;   break;
@@ -183,9 +187,35 @@ void fb_draw_filled_circle(uint64_t x0, uint64_t y0, uint64_t radius) {
                     case 4:  r = (uint8_t)p;   g = (uint8_t)t;   b = 255; break;
                     default: r = 255; g = (uint8_t)t;   b = (uint8_t)q;   break;
                 }
-                
                 fb_put_pixel(x0 + (uint64_t)x, y0 + (uint64_t)y, fb_rgb(r, g, b));
             }
+        }
+    }
+}
+
+void fb_enable_double_buffering(void) {
+    back_buffer = mem_alloc(screen_h * fb_pitch);
+    if (back_buffer)
+        use_double_buffer = 1;
+    else
+        fb_draw_string("WARN: double buffer alloc failed", 32, 32, FB_COLOR_RED, FB_COLOR_BLACK);
+}
+
+void fb_swap_buffers(void) {
+    if (use_double_buffer && back_buffer) {
+        // Visual test: Draw a fixed green rectangle at top-left of back-buffer
+        for(uint64_t y = 0; y < 10; y++) {
+            for(uint64_t x = 0; x < 10; x++) {
+                uint32_t *pixel = (uint32_t *)((uint8_t *)back_buffer + y * fb_pitch + x * 4);
+                *pixel = 0x0000FF00;
+            }
+        }
+
+        // Copy row by row to avoid tearing
+        uint8_t *src = (uint8_t *)back_buffer;
+        uint8_t *dst = (uint8_t *)fb;
+        for (uint64_t y = 0; y < screen_h; y++) {
+            memcpy(dst + y * fb_pitch, src + y * fb_pitch, screen_w * 4);
         }
     }
 }

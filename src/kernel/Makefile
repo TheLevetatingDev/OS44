@@ -16,6 +16,7 @@ NASM    := nasm
 NASMFLAGS := -f elf64
 
 SRCS    := kernel.c \
+           string.c \
            modules/framebuffer/framebuffer.c \
            modules/mem/mem.c \
            modules/mem/pmm.c \

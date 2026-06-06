@@ -20,4 +20,9 @@ void fb_draw_filled_circle(uint64_t x, uint64_t y, uint64_t r);
 uint64_t fb_width(void);
 uint64_t fb_height(void);
 
+// Double buffering
+void fb_enable_double_buffering(void);
+void fb_swap_buffers(void);
+int fb_is_double_buffered(void);
+
 #endif

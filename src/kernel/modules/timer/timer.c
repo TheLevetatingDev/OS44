@@ -33,3 +33,7 @@ void timer_handler(void) {
 uint64_t timer_get_ticks(void) {
     return timer_ticks;
 }
+
+uint64_t timer_get_uptime_seconds(void) {
+    return system_uptime_seconds;
+}

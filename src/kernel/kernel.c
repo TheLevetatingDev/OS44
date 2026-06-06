@@ -31,6 +31,7 @@ void kernel_main(BootInfo *info) {
     fb_init(info);
     intr_init();
     mem_init(info);
+    fb_enable_double_buffering(); // Enable double buffering
     sysinfo_init(info);
     keyboard_init();
     timer_init(100); // 100Hz frequency
@@ -44,6 +45,7 @@ void kernel_main(BootInfo *info) {
         // Update at 10Hz (every 10 ticks, assuming 100Hz timer)
         if (current_ticks - last_tick >= 10) {
             startup_panel_render(pmm_test_status);
+            fb_swap_buffers(); // Swap buffers
             last_tick = current_ticks;
         }
         __asm__ volatile("pause");
