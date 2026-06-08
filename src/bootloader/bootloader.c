@@ -106,13 +106,16 @@ typedef struct {
 
 // --- BootInfo passed to kernel ---
 typedef struct {
-    UINT32 magic;
-    void  *framebuffer;
-    UINT64 fb_width, fb_height, fb_pitch;
-    UINT32 fb_format;
-    void  *mmap;
-    UINT64 mmap_size, mmap_desc_size;
+    uint32_t magic;
+    void    *framebuffer;
+    uint64_t fb_width, fb_height, fb_pitch;
+    uint32_t fb_format;
+    void    *mmap;
+    uint64_t mmap_size, mmap_desc_size;
+    uint16_t fw_vendor[64];
+    uint32_t fw_revision;
 } BootInfo;
+
 
 // --- Helpers ---
 static EFI_BOOT_SERVICES *BS;
@@ -250,6 +253,10 @@ EFIAPI EFI_STATUS EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     info->mmap           = mmap;
     info->mmap_size      = mmap_size;
     info->mmap_desc_size = desc_size;
+    
+    // Populate Firmware Info
+    for(int i=0; i<64; i++) info->fw_vendor[i] = SystemTable->FirmwareVendor[i];
+    info->fw_revision = SystemTable->FirmwareRevision;
 
     EFI_STATUS es = BS->ExitBootServices(ImageHandle, map_key);
     if (EFI_ERROR(es)) {

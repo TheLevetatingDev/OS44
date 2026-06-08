@@ -14,6 +14,8 @@ typedef struct {
     void    *mmap;
     uint64_t mmap_size;
     uint64_t mmap_desc_size;
+    uint16_t fw_vendor[64]; // Added
+    uint32_t fw_revision;   // Added
 } BootInfo;
 
 #define BOOTINFO_MAGIC 0xB007B007

@@ -5,6 +5,7 @@
 #include "../mem/paging.h"
 #include "../mem/vmm.h"
 #include "../process/process.h"
+#include "../sysinfo/sysinfo.h"
 #include <stdint.h>
 
 // Helper to convert int to string
@@ -75,7 +76,25 @@ static void execute_command(void) {
     char response[LINE_LEN];
 
     if (strcmp(cmd_buf, "help") == 0) {
-        memcpy(response, "Cmds: help, testmem, spawn, get [pid], pkill [pid]", 50);
+        memcpy(response, "Cmds: help, testmem, spawn, get [pid], pkill [pid], info", 60);
+    } else if (strcmp(cmd_buf, "info") == 0) {
+        char sysinfo_buf[512];
+        sysinfo_get_sysinfo_string(sysinfo_buf);
+        add_to_history("System Information:");
+        
+        char *ptr = sysinfo_buf;
+        char *start = sysinfo_buf;
+        while (*ptr != '\0') {
+            if (*ptr == '|') {
+                *ptr = '\0';
+                add_to_history(start);
+                start = ptr + 1;
+            }
+            ptr++;
+        }
+        add_to_history(start); // Add last segment
+        
+        memcpy(response, "Info retrieved", 14);
     } else if (strcmp(cmd_buf, "testmem") == 0) {
         uint64_t free_frames = pmm_get_free_frames();
         char frames_str[20];

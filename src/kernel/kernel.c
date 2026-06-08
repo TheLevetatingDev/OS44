@@ -8,7 +8,6 @@
 #include "modules/keyboard/keyboard.h"
 #include "modules/timer/timer.h"
 #include "modules/sysinfo/sysinfo.h"
-#include "modules/startup_panel/startup_panel.h"
 #include "modules/shell/shell.h"
 #include "modules/process/process.h"
 
@@ -63,27 +62,16 @@ void kernel_main(BootInfo *info) {
     run_vmm_test();
 
     uint64_t last_tick = 0;
-    int startup_done = 0;
     while (1) {
         uint64_t current_ticks = timer_get_ticks();
         scheduler();
         
-        if (!startup_done) {
-            if (timer_get_uptime_seconds() >= 5) {
-                startup_done = 1;
-            }
-            if (current_ticks - last_tick >= 4) { // ~25Hz
-                startup_panel_render(pmm_test_status, vmm_test_status);
-                fb_swap_buffers();
-                last_tick = current_ticks;
-            }
-        } else {
-            if (current_ticks - last_tick >= 4) { // ~25Hz
-                shell_render();
-                fb_swap_buffers();
-                last_tick = current_ticks;
-            }
+        if (current_ticks - last_tick >= 4) { // ~25Hz
+            shell_render();
+            fb_swap_buffers();
+            last_tick = current_ticks;
         }
+        
         __asm__ volatile("pause");
     }
 }
