@@ -1,5 +1,7 @@
 OVMF_VARS_LOCAL := vars.fd
 ISO_DIR         := iso
+IDE_IMG         := ide.img
+IDE_IMG_SIZE    := 20M
 
 ISO_NAME := OS44_$(shell date +%Y%m%d_%H%M%S).iso
 
@@ -26,7 +28,21 @@ OVMF_VARS_TEMPLATE := $(firstword $(wildcard \
   $(foreach path,$(OVMF_PATHS),$(path)/ovmf_vars.fd) \
 ))
 
-.PHONY: all iso run clean runiso
+.PHONY: all iso run clean runiso run-ide runiso-ide help
+
+# ── Help ────────────────────────────────────────────────────────────────────────
+help:
+	@echo "Available targets:"
+	@echo "  make           - Build ISO (default)"
+	@echo "  make iso       - Build bootable ISO"
+	@echo "  make run       - Run in QEMU (virtual FAT directory)"
+	@echo "  make runiso    - Run in QEMU (from ISO)"
+	@echo "  make run-ide   - Run in QEMU with 20MB IDE drive (ide.img)"
+	@echo "  make runiso-ide - Run in QEMU with ISO + 20MB IDE drive"
+	@echo "  make run IDE=1 - Run with IDE drive (alias for run-ide)"
+	@echo "  make runiso IDE=1 - Run ISO with IDE drive (alias for runiso-ide)"
+	@echo "  make clean     - Clean build artifacts"
+	@echo "  make help      - Show this help"
 
 all: iso
 
@@ -87,11 +103,25 @@ iso: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf
 
 # ── QEMU run with the generated ISO ───────────────────────────────────────────
 runiso: iso $(OVMF_VARS_LOCAL)
+ifeq ($(IDE),1)
+	@$(MAKE) ide.img
+endif
 	@if [ -z "$(OVMF_CODE)" ]; then \
 		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
 		exit 1; \
 	fi
 	@echo ">>> Running QEMU with ISO: $(shell ls -t OS44_*.iso | head -1)"
+ifeq ($(IDE),1)
+	qemu-system-x86_64 \
+		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
+		-cdrom $(shell ls -t OS44_*.iso | head -1) \
+		-drive if=ide,format=raw,file=ide.img \
+		-m 256M \
+		-boot order=d \
+		-net none \
+		-serial stdio
+else
 	qemu-system-x86_64 \
 		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
@@ -100,9 +130,13 @@ runiso: iso $(OVMF_VARS_LOCAL)
 		-boot d \
 		-net none \
 		-serial stdio
+endif
 
 # ── QEMU test run (using virtual FAT directory directly) ──────────────────────
 run: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf $(OVMF_VARS_LOCAL)
+ifeq ($(IDE),1)
+	@$(MAKE) ide.img
+endif
 	@if [ -z "$(OVMF_CODE)" ]; then \
 		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
 		exit 1; \
@@ -110,15 +144,66 @@ run: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf $(OVMF_VARS_LOCAL)
 	@mkdir -p $(ISO_DIR)/EFI/BOOT
 	@cp src/bootloader/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/
 	@cp src/kernel/kernel.elf       $(ISO_DIR)/
+ifeq ($(IDE),1)
+	@echo ">>> Running QEMU with IDE drive (ide.img) + virtual FAT"
+	qemu-system-x86_64 \
+		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
+		-drive format=raw,file=fat:rw:$(ISO_DIR) \
+		-drive if=ide,format=raw,file=ide.img \
+		-m 256M \
+		-serial stdio
+else
 	qemu-system-x86_64 \
 		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
 		-drive format=raw,file=fat:rw:$(ISO_DIR) \
 		-m 256M \
 		-serial stdio
+endif
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	$(MAKE) -C src/bootloader clean
 	$(MAKE) -C src/kernel clean
-	rm -rf $(ISO_DIR) OS44_*.iso staging $(OVMF_VARS_LOCAL)
+	rm -rf $(ISO_DIR) OS44_*.iso staging $(OVMF_VARS_LOCAL) ide.img
+
+# ── IDE 20MB disk image ───────────────────────────────────────────────────────
+ide.img:
+	@echo ">>> Creating 20MB IDE disk image: ide.img"
+	@dd if=/dev/zero of=ide.img bs=1M count=20 status=none
+
+# ── QEMU run with IDE drive (using virtual FAT dir + IDE image) ───────────────
+run-ide: ide.img src/bootloader/BOOTX64.EFI src/kernel/kernel.elf $(OVMF_VARS_LOCAL)
+	@if [ -z "$(OVMF_CODE)" ]; then \
+		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
+		exit 1; \
+	fi
+	@mkdir -p $(ISO_DIR)/EFI/BOOT
+	@cp src/bootloader/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/
+	@cp src/kernel/kernel.elf       $(ISO_DIR)/
+	@echo ">>> Running QEMU with IDE drive (ide.img) + virtual FAT"
+	qemu-system-x86_64 \
+		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
+		-drive format=raw,file=fat:rw:$(ISO_DIR) \
+		-drive if=ide,format=raw,file=ide.img \
+		-m 256M \
+		-serial stdio
+
+# ── QEMU run with ISO + IDE drive ─────────────────────────────────────────────
+runiso-ide: ide.img iso $(OVMF_VARS_LOCAL)
+	@if [ -z "$(OVMF_CODE)" ]; then \
+		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
+		exit 1; \
+	fi
+	@echo ">>> Running QEMU with ISO: $(shell ls -t OS44_*.iso | head -1) + IDE drive (ide.img)"
+	qemu-system-x86_64 \
+		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
+		-cdrom $(shell ls -t OS44_*.iso | head -1) \
+		-drive if=ide,format=raw,file=ide.img \
+		-m 256M \
+		-boot order=d \
+		-net none \
+		-serial stdio

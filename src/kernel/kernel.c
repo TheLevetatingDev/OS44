@@ -10,6 +10,7 @@
 #include "modules/sysinfo/sysinfo.h"
 #include "modules/shell/shell.h"
 #include "modules/process/process.h"
+#include "modules/ide/ide.h"
 
 static int pmm_test_status = 0; // 0: testing, 1: pass, 2: fail
 static int vmm_test_status = 0; // 0: testing, 1: pass, 2: fail
@@ -54,6 +55,7 @@ void kernel_main(BootInfo *info) {
     sysinfo_init(info);
     keyboard_init();
     timer_init(100);
+    ide_init();
     shell_init();
     process_init();
     __asm__ volatile("sti");

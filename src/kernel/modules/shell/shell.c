@@ -6,6 +6,7 @@
 #include "../mem/vmm.h"
 #include "../process/process.h"
 #include "../sysinfo/sysinfo.h"
+#include "../ide/ide.h"
 #include <stdint.h>
 
 // Helper to convert int to string
@@ -33,6 +34,50 @@ static uint64_t atoi(const char *str) {
         str++;
     }
     return res;
+}
+
+static void append_str(char *buf, uint64_t *pos, uint64_t cap, const char *s) {
+    while (*s && *pos + 1 < cap)
+        buf[(*pos)++] = *s++;
+}
+
+static void append_hex(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
+    static const char hex[] = "0123456789ABCDEF";
+    char tmp[18];
+    int len = 0;
+    if (value == 0) {
+        if (*pos + 3 < cap) {
+            buf[(*pos)++] = '0';
+            buf[(*pos)++] = 'x';
+            buf[(*pos)++] = '0';
+        }
+        return;
+    }
+    while (value > 0 && len < 16) {
+        tmp[len++] = hex[value & 0xF];
+        value >>= 4;
+    }
+    if (*pos + 2 < cap) {
+        buf[(*pos)++] = '0';
+        buf[(*pos)++] = 'x';
+    }
+    while (len > 0 && *pos + 1 < cap)
+        buf[(*pos)++] = tmp[--len];
+}
+
+static void append_dec(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
+    char tmp[24];
+    int len = 0;
+    if (value == 0) {
+        if (*pos + 1 < cap) buf[(*pos)++] = '0';
+        return;
+    }
+    while (value > 0 && len < 24) {
+        tmp[len++] = (char)('0' + (value % 10));
+        value /= 10;
+    }
+    while (len > 0 && *pos + 1 < cap)
+        buf[(*pos)++] = tmp[--len];
 }
 
 #define MAX_CMD_LEN 64
@@ -76,7 +121,7 @@ static void execute_command(void) {
     char response[LINE_LEN];
 
     if (strcmp(cmd_buf, "help") == 0) {
-        memcpy(response, "Cmds: help, testmem, spawn, get [pid], pkill [pid], info", 60);
+        memcpy(response, "Cmds: help, testmem, spawn, get [pid], pkill [pid], info, ideinfo, ideread [lba] [count], ideident", 100);
     } else if (strcmp(cmd_buf, "info") == 0) {
         char sysinfo_buf[512];
         sysinfo_get_sysinfo_string(sysinfo_buf);
@@ -158,6 +203,165 @@ static void execute_command(void) {
         } else {
             memcpy(response, "Invalid PID", 11);
         }
+    } else if (strcmp(cmd_buf, "ideinfo") == 0) {
+        char msg[256];
+        char *p = msg;
+        size_t remaining = sizeof(msg);
+        
+        extern uint8_t ide_primary_master;
+        extern uint8_t ide_primary_slave;
+        extern uint8_t ide_secondary_master;
+        extern uint8_t ide_secondary_slave;
+        extern uint32_t ide_primary_master_sectors;
+        extern uint32_t ide_primary_slave_sectors;
+        extern uint32_t ide_secondary_master_sectors;
+        extern uint32_t ide_secondary_slave_sectors;
+        
+        append_str(msg, (uint64_t*)&p, remaining, "IDE Drive Info:\n");
+        add_to_history(msg);
+        
+        p = msg; remaining = sizeof(msg);
+        if (ide_primary_master) {
+            append_str(msg, (uint64_t*)&p, remaining, "  Primary Master: Present, Sectors: ");
+            append_dec(msg, (uint64_t*)&p, remaining, ide_primary_master_sectors);
+        } else {
+            append_str(msg, (uint64_t*)&p, remaining, "  Primary Master: Not present");
+        }
+        add_to_history(msg);
+        
+        p = msg; remaining = sizeof(msg);
+        if (ide_primary_slave) {
+            append_str(msg, (uint64_t*)&p, remaining, "  Primary Slave: Present, Sectors: ");
+            append_dec(msg, (uint64_t*)&p, remaining, ide_primary_slave_sectors);
+        } else {
+            append_str(msg, (uint64_t*)&p, remaining, "  Primary Slave: Not present");
+        }
+        add_to_history(msg);
+        
+        p = msg; remaining = sizeof(msg);
+        if (ide_secondary_master) {
+            append_str(msg, (uint64_t*)&p, remaining, "  Secondary Master: Present, Sectors: ");
+            append_dec(msg, (uint64_t*)&p, remaining, ide_secondary_master_sectors);
+        } else {
+            append_str(msg, (uint64_t*)&p, remaining, "  Secondary Master: Not present");
+        }
+        add_to_history(msg);
+        
+        p = msg; remaining = sizeof(msg);
+        if (ide_secondary_slave) {
+            append_str(msg, (uint64_t*)&p, remaining, "  Secondary Slave: Present, Sectors: ");
+            append_dec(msg, (uint64_t*)&p, remaining, ide_secondary_slave_sectors);
+        } else {
+            append_str(msg, (uint64_t*)&p, remaining, "  Secondary Slave: Not present");
+        }
+        add_to_history(msg);
+        
+        memcpy(response, "IDE info printed", 16);
+    } else if (cmd_buf[0] == 'i' && cmd_buf[1] == 'd' && cmd_buf[2] == 'e' && cmd_buf[3] == 'r' && cmd_buf[4] == 'e' && cmd_buf[5] == 'a' && cmd_buf[6] == 'd') {
+        uint32_t lba = atoi(cmd_buf + 8);
+        uint16_t count = 1;
+        char *space = (char*)cmd_buf + 8;
+        while (*space && *space != ' ') space++;
+        if (*space == ' ') count = atoi(space + 1);
+        
+        uint8_t buf[512 * 16];
+        if (count > 16) count = 16;
+        int ret = ide_read_sectors(0, lba, count, buf);
+        if (ret == 0) {
+            char line[128];
+            for (uint16_t i = 0; i < count * 512; i += 16) {
+                uint64_t pos = 0;
+                append_str(line, &pos, sizeof(line), "LBA+");
+                append_hex(line, &pos, sizeof(line), lba + i / 512);
+                append_str(line, &pos, sizeof(line), " +");
+                append_dec(line, &pos, sizeof(line), i / 512);
+                append_str(line, &pos, sizeof(line), ": ");
+                for (int j = 0; j < 16 && i + j < count * 512; j++) {
+                    append_hex(line, &pos, sizeof(line), buf[i + j]);
+                    append_str(line, &pos, sizeof(line), " ");
+                }
+                line[pos < sizeof(line) ? pos : sizeof(line) - 1] = '\0';
+                add_to_history(line);
+            }
+            memcpy(response, "Read complete", 13);
+        } else {
+            memcpy(response, "Read failed", 11);
+        }
+    } else if (strcmp(cmd_buf, "ideident") == 0) {
+        ide_identify_t identify;
+        ide_identify(0, &identify);
+        
+        char msg[256];
+        char *p = msg;
+        size_t remaining = sizeof(msg);
+        
+        append_str(msg, (uint64_t*)&p, remaining, "IDENTIFY for drive 0:\n");
+        add_to_history(msg);
+        
+        if (identify.config == 0) {
+            add_to_history("  Drive not present or IDENTIFY failed");
+        } else {
+            char model[41];
+            memcpy(model, identify.model_number, 40);
+            model[40] = 0;
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Model: ");
+            append_str(msg, (uint64_t*)&p, remaining, model);
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+            
+            char serial[21];
+            memcpy(serial, identify.serial_number, 20);
+            serial[20] = 0;
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Serial: ");
+            append_str(msg, (uint64_t*)&p, remaining, serial);
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+            
+            char fw[9];
+            memcpy(fw, identify.firmware_revision, 8);
+            fw[8] = 0;
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Firmware: ");
+            append_str(msg, (uint64_t*)&p, remaining, fw);
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Cylinders: ");
+            append_dec(msg, (uint64_t*)&p, remaining, identify.cylinders);
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Heads: ");
+            append_dec(msg, (uint64_t*)&p, remaining, identify.heads);
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Sectors/Track: ");
+            append_dec(msg, (uint64_t*)&p, remaining, identify.sectors_per_track);
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Total LBA28 sectors: ");
+            append_dec(msg, (uint64_t*)&p, remaining, identify.total_lba28);
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+            
+            p = msg; remaining = sizeof(msg);
+            append_str(msg, (uint64_t*)&p, remaining, "  Capacity (MB): ");
+            append_dec(msg, (uint64_t*)&p, remaining, (identify.total_lba28 * 512) / (1024 * 1024));
+            append_str(msg, (uint64_t*)&p, remaining, "\n");
+            add_to_history(msg);
+        }
+        memcpy(response, "IDENTIFY sent", 13);
     } else {
         memcpy(response, "Unknown command", 15);
     }
