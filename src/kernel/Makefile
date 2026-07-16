@@ -2,7 +2,7 @@ CC      := zig cc
 CFLAGS  := -target x86_64-freestanding-none \
            -Wall -Wextra -ffreestanding -fno-stack-protector \
            -fpie -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
-           -mcmodel=small -O2 \
+           -mcmodel=small -O3 \
            -fno-vectorize -fno-slp-vectorize \
            -I.
 LD      := zig cc
@@ -10,10 +10,11 @@ LDFLAGS := -target x86_64-freestanding-none \
            -nostdlib -pie \
            -Wl,-T,linker.ld \
            -Wl,--no-dynamic-linker \
-           -Wl,-e,kernel_main
+           -Wl,-e,kernel_main \
+           -Wl,-O3
 
 NASM    := nasm
-NASMFLAGS := -f elf64
+NASMFLAGS := -f elf64 -g
 
 SRCS    := kernel.c \
            string.c \

@@ -123,10 +123,13 @@ void startup_panel_render(int pmm_test_status, int vmm_test_status) {
     }
 
     // Draw animated progress
-    uint64_t progress_width = (frame_count) * (bar_width - 4) / 1000;
+    const uint64_t progress_width = (frame_count) * (bar_width - 4) / 1000;
+    const uint64_t start_y = bar_y + 1;
+    const uint64_t end_y = bar_y + bar_height - 2;
+    
     for(uint64_t i = 0; i < progress_width; i++) {
-        for(uint64_t j = 0; j < bar_height - 2; j++) {
-            fb_put_pixel(bar_x + 2 + i, bar_y + 1 + j, FB_COLOR_GREEN);
+        for(uint64_t j = start_y; j < end_y; j++) {
+            fb_put_pixel(bar_x + 2 + i, j, FB_COLOR_GREEN);
         }
     }
 }
