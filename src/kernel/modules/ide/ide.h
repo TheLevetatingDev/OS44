@@ -78,7 +78,4 @@ extern uint32_t ide_primary_slave_sectors;
 extern uint32_t ide_secondary_master_sectors;
 extern uint32_t ide_secondary_slave_sectors;
 
-uint16_t inw(uint16_t port);
-void outw(uint16_t port, uint16_t value);
-
 #endif

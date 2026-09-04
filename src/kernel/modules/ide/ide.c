@@ -4,51 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 
-extern void add_to_history(const char *str);
-
-static void append_str(char *buf, uint64_t *pos, uint64_t cap, const char *s) {
-    while (*s && *pos + 1 < cap)
-        buf[(*pos)++] = *s++;
-}
-
-static void append_dec(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
-    char tmp[24];
-    int len = 0;
-    if (value == 0) {
-        if (*pos + 1 < cap) buf[(*pos)++] = '0';
-        return;
-    }
-    while (value > 0 && len < 24) {
-        tmp[len++] = (char)('0' + (value % 10));
-        value /= 10;
-    }
-    while (len > 0 && *pos + 1 < cap)
-        buf[(*pos)++] = tmp[--len];
-}
-
-static void append_hex(char *buf, uint64_t *pos, uint64_t cap, uint64_t value) {
-    static const char hex[] = "0123456789ABCDEF";
-    char tmp[18];
-    int len = 0;
-    if (value == 0) {
-        if (*pos + 3 < cap) {
-            buf[(*pos)++] = '0';
-            buf[(*pos)++] = 'x';
-            buf[(*pos)++] = '0';
-        }
-        return;
-    }
-    while (value > 0 && len < 16) {
-        tmp[len++] = hex[value & 0xF];
-        value >>= 4;
-    }
-    if (*pos + 2 < cap) {
-        buf[(*pos)++] = '0';
-        buf[(*pos)++] = 'x';
-    }
-    while (len > 0 && *pos + 1 < cap)
-        buf[(*pos)++] = tmp[--len];
-}
+static void iser_putc(char c) { while ((inb(0x3F8 + 5) & 0x20) == 0); outb(0x3F8, c); }
+static void iser(const char *s) { while (*s) { if (*s=='\n') iser_putc('\r'); iser_putc(*s++); } }
 
 volatile int ide_irq_fired = 0;
 volatile int ide_last_status = 0;
@@ -111,6 +68,7 @@ static int ide_wait_ready_impl(uint16_t base, uint32_t timeout) {
 }
 
 void ide_init(void) {
+    iser("[IDE] start\n");
     fb_draw_string("IDE: Initializing IDE controller...", 16, 256, FB_COLOR_WHITE, FB_COLOR_BLACK);
     
     outb(IDE_PRIMARY_CTRL + 2, 0x02);
@@ -118,6 +76,7 @@ void ide_init(void) {
     
     ide_identify_t identify;
     
+    iser("[IDE] master\n");
     ide_select_drive(IDE_PRIMARY_BASE, 0);
     outb(IDE_PRIMARY_BASE + 2, 0);
     outb(IDE_PRIMARY_BASE + 3, 0);
@@ -215,6 +174,7 @@ void ide_init(void) {
     }
     
     fb_draw_string("IDE: Initialization complete", 16, 352, FB_COLOR_GREEN, FB_COLOR_BLACK);
+    iser("[IDE] done\n");
 }
 
 int ide_detect_drives(void) {
@@ -337,14 +297,4 @@ void ide_irq_handler(void) {
 
 int ide_wait_ready(uint16_t base, uint32_t timeout) {
     return ide_wait_ready_impl(base, timeout);
-}
-
-uint16_t inw(uint16_t port) {
-    uint16_t value;
-    __asm__ volatile("inw %1, %0" : "=a"(value) : "Nd"(port));
-    return value;
-}
-
-void outw(uint16_t port, uint16_t value) {
-    __asm__ volatile("outw %0, %1" : : "a"(value), "Nd"(port));
 }

@@ -44,6 +44,45 @@ typedef struct {
 
 static IdtEntry idt[IDT_ENTRIES];
 
+#define KERNEL_CS 0x08
+#define KERNEL_DS 0x10
+
+static uint64_t gdt[3];
+
+typedef struct {
+    uint16_t limit;
+    uint64_t base;
+} __attribute__((packed)) Gdtr;
+
+static void gdt_load(void) {
+    Gdtr gdtr;
+    gdtr.limit = (uint16_t)(sizeof(gdt) - 1);
+    gdtr.base  = (uint64_t)gdt;
+    __asm__ volatile("lgdt %0" : : "m"(gdtr));
+
+    __asm__ volatile(
+        "pushq %0\n"
+        "leaq 1f(%%rip), %%rax\n"
+        "pushq %%rax\n"
+        "lretq\n"
+        "1:\n"
+        "movw %w1, %%ss\n"
+        "movw %w1, %%ds\n"
+        "movw %w1, %%es\n"
+        "movw %w1, %%fs\n"
+        "movw %w1, %%gs\n"
+        :
+        : "r"((uint64_t)KERNEL_CS), "r"((uint16_t)KERNEL_DS)
+        : "rax");
+}
+
+static void gdt_init(void) {
+    gdt[0] = 0x0000000000000000ULL;  /* null */
+    gdt[1] = 0x00AF9A000000FFFFULL;  /* kernel code, 64-bit, ring 0 */
+    gdt[2] = 0x00CF92000000FFFFULL;  /* kernel data, ring 0 */
+    gdt_load();
+}
+
 extern void isr_0(void);
 extern void isr_1(void);
 extern void isr_2(void);
@@ -176,19 +215,30 @@ uint8_t inb(uint16_t port) {
     return value;
 }
 
+void outw(uint16_t port, uint16_t value) {
+    __asm__ volatile("outw %0, %1" : : "a"(value), "Nd"(port));
+}
+
+uint16_t inw(uint16_t port) {
+    uint16_t value;
+    __asm__ volatile("inw %1, %0" : "=a"(value) : "Nd"(port));
+    return value;
+}
+
+void outl(uint16_t port, uint32_t value) {
+    __asm__ volatile("outl %0, %1" : : "a"(value), "Nd"(port));
+}
+
+uint32_t inl(uint16_t port) {
+    uint32_t value;
+    __asm__ volatile("inl %1, %0" : "=a"(value) : "Nd"(port));
+    return value;
+}
+
 static uint16_t read_cs(void) {
     uint16_t cs;
     __asm__ volatile("movw %%cs, %0" : "=r"(cs));
     return cs;
-}
-
-static void hex_to_string_16(char *buf, uint16_t value) {
-    const char hex_chars[] = "0123456789ABCDEF";
-    buf[0] = hex_chars[(value >> 12) & 0xF];
-    buf[1] = hex_chars[(value >> 8) & 0xF];
-    buf[2] = hex_chars[(value >> 4) & 0xF];
-    buf[3] = hex_chars[value & 0xF];
-    buf[4] = '\0';
 }
 
 static void idt_set_gate(unsigned int vector, void (*handler)(void)) {
@@ -196,29 +246,11 @@ static void idt_set_gate(unsigned int vector, void (*handler)(void)) {
     idt[vector].offset_low  = (uint16_t)(addr & 0xFFFF);
     idt[vector].offset_mid  = (uint16_t)((addr >> 16) & 0xFFFF);
     idt[vector].offset_high = (uint32_t)(addr >> 32);
-    uint16_t cs = read_cs();
+    uint16_t cs = KERNEL_CS;
     idt[vector].selector    = cs;
     idt[vector].ist         = 0;
     idt[vector].type_attr   = 0x8E;
     idt[vector].zero        = 0;
-
-    if (vector == ISR_IRQ_BASE + 1) { // Debug for keyboard interrupt
-        char cs_str[5];
-        hex_to_string_16(cs_str, cs);
-        fb_draw_string("IDT entry 33: CS=", 16, 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
-        fb_draw_string(cs_str, 16 + (8 * 17), 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
-
-        char addr_str[17];
-        // This is a simple conversion, a full uint64_t to hex would be more involved
-        // For debugging, we can just print the lower 32 bits if needed due to fb_draw_string limits.
-        // For now, let's just print the CS as that's a more common issue.
-        // Re-using append_hex from interrupts.c for addr
-        uint64_t pos = 0;
-        append_hex(addr_str, &pos, sizeof(addr_str), addr);
-        addr_str[pos < sizeof(addr_str) ? pos : sizeof(addr_str) - 1] = '\0';
-        fb_draw_string(" Handler addr=", 16 + (8 * 23), 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
-        fb_draw_string(addr_str, 16 + (8 * 37), 432, FB_COLOR_WHITE, FB_COLOR_BLACK);
-    }
 }
 
 static void idt_load(void) {
@@ -243,11 +275,6 @@ static void pic_remap(uint8_t offset1, uint8_t offset2) {
 
     outb(PIC1_DATA, mask1);
     outb(PIC2_DATA, mask2);
-}
-
-static void pic_mask_all(void) {
-    outb(PIC1_DATA, 0xFE);
-    outb(PIC2_DATA, 0xFF);
 }
 
 static void pic_eoi(uint64_t vector) {
@@ -340,6 +367,17 @@ static void panic_report(const IntrFrame *frame) {
 }
 
 void isr_handler(IntrFrame *frame) {
+    {
+        uint64_t v = frame->vector;
+        outb(0x3F8, 'I'); outb(0x3F8, '=');
+        char b[21]; char t[20]; int bi=0, tj=0;
+        if (v==0) b[bi++]='0';
+        while(v>0){t[tj++]='0'+v%10;v/=10;}
+        while(tj>0)b[bi++]=t[--tj];
+        b[bi]='\0';
+        for(int i=0;i<bi;i++) outb(0x3F8,b[i]);
+        outb(0x3F8, '\n');
+    }
     if (frame->vector < ISR_CPU_MAX) {
         panic_report(frame);
         return; /* unreachable, but prevents fall-through if ever refactored */
@@ -350,7 +388,6 @@ void isr_handler(IntrFrame *frame) {
         if (frame->vector == ISR_IRQ_BASE + 0) { /* Timer IRQ0 */
             timer_handler();
         } else if (frame->vector == ISR_IRQ_BASE + 1) { /* Keyboard IRQ1 */
-            fb_draw_string("Keyboard IRQ received!", 16, 250, FB_COLOR_WHITE, FB_COLOR_BLACK);
             keyboard_handler();
         }
         return;
@@ -363,26 +400,60 @@ void isr_handler(IntrFrame *frame) {
 }
 
 void intr_init(void) {
-    static void (*const cpu_stubs[ISR_CPU_MAX])(void) = {
-        isr_0,  isr_1,  isr_2,  isr_3,  isr_4,  isr_5,  isr_6,  isr_7,
-        isr_8,  isr_9,  isr_10, isr_11, isr_12, isr_13, isr_14, isr_15,
-        isr_16, isr_17, isr_18, isr_19, isr_20, isr_21, isr_22, isr_23,
-        isr_24, isr_25, isr_26, isr_27, isr_28, isr_29, isr_30, isr_31,
-    };
-
-    static void (*const irq_stubs[16])(void) = {
-        isr_32, isr_33, isr_34, isr_35, isr_36, isr_37, isr_38, isr_39,
-        isr_40, isr_41, isr_42, isr_43, isr_44, isr_45, isr_46, isr_47,
-    };
+    gdt_init();
 
     for (unsigned int i = 0; i < IDT_ENTRIES; i++)
         idt_set_gate(i, isr_unhandled);
 
-    for (unsigned int i = 0; i < ISR_CPU_MAX; i++)
-        idt_set_gate(i, cpu_stubs[i]);
+    idt_set_gate(0, isr_0);
+    idt_set_gate(1, isr_1);
+    idt_set_gate(2, isr_2);
+    idt_set_gate(3, isr_3);
+    idt_set_gate(4, isr_4);
+    idt_set_gate(5, isr_5);
+    idt_set_gate(6, isr_6);
+    idt_set_gate(7, isr_7);
+    idt_set_gate(8, isr_8);
+    idt_set_gate(9, isr_9);
+    idt_set_gate(10, isr_10);
+    idt_set_gate(11, isr_11);
+    idt_set_gate(12, isr_12);
+    idt_set_gate(13, isr_13);
+    idt_set_gate(14, isr_14);
+    idt_set_gate(15, isr_15);
+    idt_set_gate(16, isr_16);
+    idt_set_gate(17, isr_17);
+    idt_set_gate(18, isr_18);
+    idt_set_gate(19, isr_19);
+    idt_set_gate(20, isr_20);
+    idt_set_gate(21, isr_21);
+    idt_set_gate(22, isr_22);
+    idt_set_gate(23, isr_23);
+    idt_set_gate(24, isr_24);
+    idt_set_gate(25, isr_25);
+    idt_set_gate(26, isr_26);
+    idt_set_gate(27, isr_27);
+    idt_set_gate(28, isr_28);
+    idt_set_gate(29, isr_29);
+    idt_set_gate(30, isr_30);
+    idt_set_gate(31, isr_31);
 
-    for (unsigned int i = 0; i < 16; i++)
-        idt_set_gate(ISR_IRQ_BASE + i, irq_stubs[i]);
+    idt_set_gate(32, isr_32);
+    idt_set_gate(33, isr_33);
+    idt_set_gate(34, isr_34);
+    idt_set_gate(35, isr_35);
+    idt_set_gate(36, isr_36);
+    idt_set_gate(37, isr_37);
+    idt_set_gate(38, isr_38);
+    idt_set_gate(39, isr_39);
+    idt_set_gate(40, isr_40);
+    idt_set_gate(41, isr_41);
+    idt_set_gate(42, isr_42);
+    idt_set_gate(43, isr_43);
+    idt_set_gate(44, isr_44);
+    idt_set_gate(45, isr_45);
+    idt_set_gate(46, isr_46);
+    idt_set_gate(47, isr_47);
 
     pic_remap(ISR_IRQ_BASE, ISR_IRQ_BASE + 8);
     /* Mask all IRQs — keyboard_init() will unmask IRQ1, then kernel_main calls sti */

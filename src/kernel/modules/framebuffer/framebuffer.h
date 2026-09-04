@@ -4,10 +4,13 @@
 #include <stdint.h>
 #include "../../bootinfo.h"
 
-#define FB_COLOR_BLACK  0x00000000
-#define FB_COLOR_WHITE  0x00FFFFFF
-#define FB_COLOR_GREEN  0x0000FF00
-#define FB_COLOR_RED    0x00FF0000
+#define FB_COLOR_BLACK   0x00000000
+#define FB_COLOR_WHITE   0x00FFFFFF
+#define FB_COLOR_GREEN   0x0000FF00
+#define FB_COLOR_RED     0x00FF0000
+#define FB_COLOR_CYAN    0x0000FFFF
+#define FB_COLOR_YELLOW  0x00FFFF00
+#define FB_COLOR_MAGENTA 0x00FF00FF
 
 #define FB_FORMAT_RGB  0   // PixelRedGreenBlueReserved8BitPerColor
 #define FB_FORMAT_BGR  1   // PixelBlueGreenRedReserved8BitPerColor

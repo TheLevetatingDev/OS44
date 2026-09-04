@@ -6,29 +6,33 @@ IDE_IMG_SIZE    := 20M
 ISO_NAME := OS44_$(shell date +%Y%m%d_%H%M%S).iso
 
 # ── Dynamic OVMF Detection ────────────────────────────────────────────────────
-# This searches common Linux system paths for the 4M (or standard) OVMF files.
 OVMF_PATHS := \
+  . \
+  /opt/homebrew/share/qemu \
+  /usr/local/share/qemu \
   /usr/share/OVMF \
   /usr/share/ovmf \
   /usr/share/ovmf/x64 \
   /usr/share/edk2/ovmf \
   /usr/share/edk2-ovmf/x64
 
-# Locate OVMF_CODE (preferring the 4M version if available)
 OVMF_CODE := $(firstword $(wildcard \
+  OVMF_CODE.fd \
   $(foreach path,$(OVMF_PATHS),$(path)/OVMF_CODE_4M.fd) \
   $(foreach path,$(OVMF_PATHS),$(path)/OVMF_CODE.fd) \
   $(foreach path,$(OVMF_PATHS),$(path)/ovmf_code.fd) \
 ))
 
-# Locate the matching template OVMF_VARS
 OVMF_VARS_TEMPLATE := $(firstword $(wildcard \
+  vars.fd \
   $(foreach path,$(OVMF_PATHS),$(path)/OVMF_VARS_4M.fd) \
   $(foreach path,$(OVMF_PATHS),$(path)/OVMF_VARS.fd) \
   $(foreach path,$(OVMF_PATHS),$(path)/ovmf_vars.fd) \
+  $(foreach path,$(OVMF_PATHS),$(path)/edk2-x86_64-vars.fd) \
+  $(foreach path,$(OVMF_PATHS),$(path)/edk2-i386-vars.fd) \
 ))
 
-.PHONY: all iso run clean runiso run-ide runiso-ide help
+.PHONY: all iso run clean runiso run-ide runiso-ide help ensure-ovmf-code
 
 # ── Help ────────────────────────────────────────────────────────────────────────
 help:
@@ -46,18 +50,26 @@ help:
 
 all: iso
 
-# ── Helper to restore vars.fd ─────────────────────────────────────────────────
-# This rule will run automatically if vars.fd is missing
-$(OVMF_VARS_LOCAL):
-	@if [ -z "$(OVMF_VARS_TEMPLATE)" ]; then \
-		echo "ERROR: Could not find system OVMF_VARS template on your system!"; \
-		echo "Please install 'ovmf' or 'edk2-ovmf' package."; \
-		exit 1; \
+# ── Ensure OVMF_CODE.fd exists ─────────────────────────────────────────────────
+ensure-ovmf-code:
+	@if [ -z "$(OVMF_CODE)" ] || [ $$(wc -c < OVMF_CODE.fd 2>/dev/null || echo 0) -lt 100000 ]; then \
+		echo ">>> OVMF_CODE valid binary not found. Downloading..."; \
+		curl -L -o OVMF_CODE.fd.bz2 "https://raw.githubusercontent.com/qemu/qemu/master/pc-bios/edk2-x86_64-code.fd.bz2"; \
+		bunzip2 -f OVMF_CODE.fd.bz2; \
 	fi
-	@echo ">>> System OVMF Code found at: $(OVMF_CODE)"
-	@echo ">>> System OVMF Vars template found at: $(OVMF_VARS_TEMPLATE)"
-	@echo ">>> Copying system template to local $(OVMF_VARS_LOCAL)..."
-	@cp $(OVMF_VARS_TEMPLATE) $(OVMF_VARS_LOCAL)
+
+# ── Helper to restore/download vars.fd ────────────────────────────────────────
+$(OVMF_VARS_LOCAL):
+	@if [ -n "$(OVMF_VARS_TEMPLATE)" ] && [ "$(OVMF_VARS_TEMPLATE)" != "$(OVMF_VARS_LOCAL)" ]; then \
+		echo ">>> System OVMF Code found at: $(OVMF_CODE)"; \
+		echo ">>> System OVMF Vars template found at: $(OVMF_VARS_TEMPLATE)"; \
+		echo ">>> Copying system template to local $(OVMF_VARS_LOCAL)..."; \
+		cp $(OVMF_VARS_TEMPLATE) $(OVMF_VARS_LOCAL); \
+	elif [ ! -f "$(OVMF_VARS_LOCAL)" ] || [ $$(wc -c < $(OVMF_VARS_LOCAL) 2>/dev/null || echo 0) -lt 50000 ]; then \
+		echo ">>> OVMF_VARS template valid binary not found. Downloading..."; \
+		curl -L -o vars.fd.bz2 "https://raw.githubusercontent.com/qemu/qemu/master/pc-bios/edk2-i386-vars.fd.bz2"; \
+		bunzip2 -f vars.fd.bz2; \
+	fi
 
 # ── Sub-project builds ────────────────────────────────────────────────────────
 src/bootloader/BOOTX64.EFI:
@@ -71,51 +83,37 @@ iso: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf
 	@echo ">>> Building bootable ISO: $(ISO_NAME)"
 	@mkdir -p $(ISO_DIR)
 	@rm -rf staging
-	
-	@# Setup Staging Directory Structure
 	@mkdir -p staging/EFI/BOOT
 	@cp src/bootloader/BOOTX64.EFI staging/EFI/BOOT/BOOTX64.EFI
 	@cp src/kernel/kernel.elf staging/kernel.elf
-	
-	@# Create a clean 64MB FAT32 image
 	@dd if=/dev/zero of=staging/efi.img bs=1M count=64 status=none
 	@mkfs.vfat -F 32 staging/efi.img > /dev/null
-	
-	@# Use mtools to structure the FAT image
 	@mmd -i staging/efi.img ::/EFI
 	@mmd -i staging/efi.img ::/EFI/BOOT
 	@mcopy -i staging/efi.img src/bootloader/BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
 	@mcopy -i staging/efi.img src/kernel/kernel.elf ::/kernel.elf
-	
-	@# Generate the hybrid ISO containing BOTH staging files and efi.img
 	xorriso -as mkisofs \
 		-o $(ISO_NAME) \
 		-e efi.img \
 		-no-emul-boot \
 		-isohybrid-gpt-basdat \
 		staging
-	
-	@# Clean up staging directory
 	@rm -rf staging
 	@echo ""
 	@echo ">>> Done: $(ISO_NAME)"
 	@echo ">>> Flash: sudo dd if=$(ISO_NAME) of=/dev/sdX bs=4M status=progress && sync"
 
 # ── QEMU run with the generated ISO ───────────────────────────────────────────
-runiso: iso $(OVMF_VARS_LOCAL)
+runiso: iso ensure-ovmf-code $(OVMF_VARS_LOCAL)
 ifeq ($(IDE),1)
 	@$(MAKE) ide.img
 endif
-	@if [ -z "$(OVMF_CODE)" ]; then \
-		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
-		exit 1; \
-	fi
-	@echo ">>> Running QEMU with ISO: $(shell ls -t OS44_*.iso | head -1)"
+	@echo ">>> Running QEMU with ISO: $$(ls -t OS44_*.iso | head -1)"
 ifeq ($(IDE),1)
 	qemu-system-x86_64 \
-		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,readonly=on,file=$$(if [ -n "$(OVMF_CODE)" ]; then echo "$(OVMF_CODE)"; else echo "OVMF_CODE.fd"; fi) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
-		-cdrom $(shell ls -t OS44_*.iso | head -1) \
+		-cdrom $$(ls -t OS44_*.iso | head -1) \
 		-drive if=ide,format=raw,file=ide.img \
 		-m 256M \
 		-boot order=d \
@@ -123,9 +121,9 @@ ifeq ($(IDE),1)
 		-serial stdio
 else
 	qemu-system-x86_64 \
-		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,readonly=on,file=$$(if [ -n "$(OVMF_CODE)" ]; then echo "$(OVMF_CODE)"; else echo "OVMF_CODE.fd"; fi) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
-		-cdrom $(shell ls -t OS44_*.iso | head -1) \
+		-cdrom $$(ls -t OS44_*.iso | head -1) \
 		-m 256M \
 		-boot d \
 		-net none \
@@ -133,21 +131,17 @@ else
 endif
 
 # ── QEMU test run (using virtual FAT directory directly) ──────────────────────
-run: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf $(OVMF_VARS_LOCAL)
+run: src/bootloader/BOOTX64.EFI src/kernel/kernel.elf ensure-ovmf-code $(OVMF_VARS_LOCAL)
 ifeq ($(IDE),1)
 	@$(MAKE) ide.img
 endif
-	@if [ -z "$(OVMF_CODE)" ]; then \
-		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
-		exit 1; \
-	fi
 	@mkdir -p $(ISO_DIR)/EFI/BOOT
 	@cp src/bootloader/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/
 	@cp src/kernel/kernel.elf       $(ISO_DIR)/
 ifeq ($(IDE),1)
 	@echo ">>> Running QEMU with IDE drive (ide.img) + virtual FAT"
 	qemu-system-x86_64 \
-		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,readonly=on,file=$$(if [ -n "$(OVMF_CODE)" ]; then echo "$(OVMF_CODE)"; else echo "OVMF_CODE.fd"; fi) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
 		-drive format=raw,file=fat:rw:$(ISO_DIR) \
 		-drive if=ide,format=raw,file=ide.img \
@@ -155,7 +149,7 @@ ifeq ($(IDE),1)
 		-serial stdio
 else
 	qemu-system-x86_64 \
-		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,readonly=on,file=$$(if [ -n "$(OVMF_CODE)" ]; then echo "$(OVMF_CODE)"; else echo "OVMF_CODE.fd"; fi) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
 		-drive format=raw,file=fat:rw:$(ISO_DIR) \
 		-m 256M \
@@ -166,7 +160,7 @@ endif
 clean:
 	$(MAKE) -C src/bootloader clean
 	$(MAKE) -C src/kernel clean
-	rm -rf $(ISO_DIR) OS44_*.iso staging $(OVMF_VARS_LOCAL) ide.img
+	rm -rf $(ISO_DIR) OS44_*.iso staging $(OVMF_VARS_LOCAL) OVMF_CODE.fd ide.img
 
 # ── IDE 20MB disk image ───────────────────────────────────────────────────────
 ide.img:
@@ -174,17 +168,13 @@ ide.img:
 	@dd if=/dev/zero of=ide.img bs=1M count=20 status=none
 
 # ── QEMU run with IDE drive (using virtual FAT dir + IDE image) ───────────────
-run-ide: ide.img src/bootloader/BOOTX64.EFI src/kernel/kernel.elf $(OVMF_VARS_LOCAL)
-	@if [ -z "$(OVMF_CODE)" ]; then \
-		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
-		exit 1; \
-	fi
+run-ide: ide.img src/bootloader/BOOTX64.EFI src/kernel/kernel.elf ensure-ovmf-code $(OVMF_VARS_LOCAL)
 	@mkdir -p $(ISO_DIR)/EFI/BOOT
 	@cp src/bootloader/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/
 	@cp src/kernel/kernel.elf       $(ISO_DIR)/
 	@echo ">>> Running QEMU with IDE drive (ide.img) + virtual FAT"
 	qemu-system-x86_64 \
-		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,readonly=on,file=$$(if [ -n "$(OVMF_CODE)" ]; then echo "$(OVMF_CODE)"; else echo "OVMF_CODE.fd"; fi) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
 		-drive format=raw,file=fat:rw:$(ISO_DIR) \
 		-drive if=ide,format=raw,file=ide.img \
@@ -192,16 +182,12 @@ run-ide: ide.img src/bootloader/BOOTX64.EFI src/kernel/kernel.elf $(OVMF_VARS_LO
 		-serial stdio
 
 # ── QEMU run with ISO + IDE drive ─────────────────────────────────────────────
-runiso-ide: ide.img iso $(OVMF_VARS_LOCAL)
-	@if [ -z "$(OVMF_CODE)" ]; then \
-		echo "ERROR: Could not find system OVMF_CODE.fd!"; \
-		exit 1; \
-	fi
-	@echo ">>> Running QEMU with ISO: $(shell ls -t OS44_*.iso | head -1) + IDE drive (ide.img)"
+runiso-ide: ide.img iso ensure-ovmf-code $(OVMF_VARS_LOCAL)
+	@echo ">>> Running QEMU with ISO: $$(ls -t OS44_*.iso | head -1) + IDE drive (ide.img)"
 	qemu-system-x86_64 \
-		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,readonly=on,file=$$(if [ -n "$(OVMF_CODE)" ]; then echo "$(OVMF_CODE)"; else echo "OVMF_CODE.fd"; fi) \
 		-drive if=pflash,format=raw,file=$(OVMF_VARS_LOCAL) \
-		-cdrom $(shell ls -t OS44_*.iso | head -1) \
+		-cdrom $$(ls -t OS44_*.iso | head -1) \
 		-drive if=ide,format=raw,file=ide.img \
 		-m 256M \
 		-boot order=d \

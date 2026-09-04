@@ -1,7 +1,6 @@
 #include "keyboard.h"
 #include "../interrupts/interrupts.h"
 #include "../framebuffer/framebuffer.h"
-#include "../shell/shell.h"
 #include <stdint.h>
 
 static uint8_t shift_pressed = 0;
@@ -51,16 +50,12 @@ void keyboard_handler(void) {
     if (scancode >= 128) return;
 
     char c = shift_pressed ? scancode_to_ascii_shift[scancode] : scancode_to_ascii[scancode];
-    
+
     if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
         if (caps_lock) {
             if (c >= 'a' && c <= 'z') c = c - 'a' + 'A';
             else if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
         }
-    }
-
-    if (c != 0) {
-        shell_putc(c);
     }
 }
 
